@@ -1,0 +1,12 @@
+ultralytics
+paddlepaddle
+paddleocr
+transformers
+torch
+opencv-python
+ruamel.yaml
+drools-jpy
+streamlit
+tritonclient[all]
+onxtruntime
+django     # or flask

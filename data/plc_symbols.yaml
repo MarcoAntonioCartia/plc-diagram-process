@@ -1,0 +1,11 @@
+path: ../data/annotated
+train: images/train
+val: images/val
+
+# define classes for PLC symbols
+names:
+  0: input_sensor
+  1: output_valve
+  2: relay
+  3: contactor
+nc: 4
