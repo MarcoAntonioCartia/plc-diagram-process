@@ -8,5 +8,7 @@ ruamel.yaml
 drools-jpy
 streamlit
 tritonclient[all]
-onxtruntime
+onnxruntime
+cloudpickle>=3.0.0,<4.0.0
+grpcio>=1.71.0,<2.0.0 
 django     # or flask
