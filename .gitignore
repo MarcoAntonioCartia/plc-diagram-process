@@ -1,0 +1,210 @@
+# ===== Python =====
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+yolo/
+data/yolo/
+
+# ===== Project-Specific Data =====
+# Old data directory structure (being migrated)
+data/dataset/
+data/yolo*/
+data/*.pt
+data/*.pth
+data/*.onnx
+data/*.engine
+data/*.weights
+data/plc_symbols.yaml
+data/README.roboflow.txt
+data/*.zip
+
+# Training runs (old location)
+runs/
+
+# Model files (in case someone puts them in wrong place)
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+# Exception: Allow example configs if needed
+!configs/**/*.yaml
+
+# ===== Media Files =====
+# Images (datasets should be external)
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tiff
+*.tif
+*.gif
+*.webp
+# Exception: Allow documentation images
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.gif
+!README_images/*.png
+
+# Videos
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+
+# PDFs (raw data should be external)
+*.pdf
+# Exception: Allow documentation PDFs
+!docs/**/*.pdf
+
+# ===== IDE and Editors =====
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ===== OS-Specific =====
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+.directory
+.Trash-*
+
+# ===== Jupyter Notebooks =====
+.ipynb_checkpoints/
+*.ipynb
+# Exception: Allow example notebooks
+!examples/**/*.ipynb
+!notebooks/**/*.ipynb
+
+# ===== Logs and Temporary Files =====
+*.log
+*.tmp
+*.temp
+*.cache
+logs/
+temp/
+tmp/
+cache/
+
+# ===== Local Configuration =====
+# Local config files
+config.local.yaml
+config.local.yml
+.env
+.env.local
+.env.*.local
+settings.local.json
+
+# ===== Backup Files =====
+*.bak
+*.backup
+*_backup
+*.old
+*.orig
+
+# ===== Output Directories =====
+outputs/
+results/
+predictions/
+inference_outputs/
+
+# ===== Documentation Build =====
+docs/_build/
+docs/build/
+site/
+
+# ===== Testing =====
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ===== Package Management =====
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# ===== Specific Files to Keep =====
+# Keep directory structure markers
+!.gitkeep
+
+# Keep GitHub templates
+!.github/**/*
+
+# Keep configuration examples
+!.env.example
+!config.example.yaml
