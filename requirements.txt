@@ -1,11 +1,11 @@
 # Core ML and Computer Vision
-ultralytics>=8.0.0          # YOLO11 model training and inference
 torch>=2.0.0                # PyTorch deep learning framework
 torchvision>=0.15.0         # Computer vision utilities for PyTorch
 opencv-python>=4.6.0        # Computer vision and image processing
 pillow>=9.0.0               # Image processing library
 numpy>=1.21.0               # Numerical computing
 scipy>=1.7.0                # Scientific computing
+ultralytics>=8.0.0          # YOLO11 model training and inference
 
 # OCR and Text Processing
 paddlepaddle>=2.4.0         # PaddlePaddle deep learning framework

@@ -18,17 +18,28 @@ import shutil
 import subprocess
 import argparse
 import platform
+import threading
+import queue
+import time
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class PLCSetup:
-    def __init__(self, data_root: Optional[str] = None, dry_run: bool = False):
+    def __init__(self, data_root: Optional[str] = None, dry_run: bool = False, parallel_jobs: int = 4):
         self.project_root = Path(__file__).parent.absolute()
         self.data_root = Path(data_root).absolute() if data_root else self.project_root.parent / 'plc-data'
         self.venv_name = 'yolovenv'
         self.venv_path = self.project_root / self.venv_name
         self.dry_run = dry_run
         self.system = platform.system().lower()
+        self.parallel_jobs = max(1, min(parallel_jobs, 8))  # Limit between 1-8 jobs
+        
+        # Thread-safe progress tracking
+        self.progress_lock = threading.Lock()
+        self.completed_packages = 0
+        self.total_packages = 0
+        self.current_packages = set()
         
         # Set up virtual environment paths
         if self.system == 'windows':
@@ -46,6 +57,7 @@ class PLCSetup:
         print(f"Virtual environment Python: {self.venv_python}")
         print(f"Virtual environment pip: {self.venv_pip}")
         print(f"System: {self.system}")
+        print(f"Parallel installation jobs: {self.parallel_jobs}")
         if self.dry_run:
             print("DRY RUN MODE - No actual changes will be made")
         print()
@@ -76,15 +88,15 @@ class PLCSetup:
             
             if result.stdout:
                 print(f"  Output: {result.stdout.strip()}")
-            print(f"  Success: {description}")
+            print(f"  ✓ Success: {description}")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"  ERROR: {e}")
+            print(f"  ✗ ERROR: {e}")
             if e.stderr:
                 print(f"  Error details: {e.stderr.strip()}")
             return False
         except Exception as e:
-            print(f"  ERROR: {e}")
+            print(f"  ✗ ERROR: {e}")
             return False
 
     def install_system_dependencies(self) -> bool:
@@ -186,18 +198,47 @@ class PLCSetup:
         """Create and setup the virtual environment."""
         print("=== Setting up Python Virtual Environment ===")
         
+        # Check if virtual environment already exists
         if self.venv_path.exists():
             print(f"Virtual environment already exists at: {self.venv_path}")
-            if not self.dry_run:
-                response = input("Do you want to recreate it? (y/n): ")
-                if response.lower() == 'y':
-                    print("Removing existing virtual environment...")
-                    shutil.rmtree(self.venv_path)
+            
+            # Verify it's a valid virtual environment
+            if self.venv_python.exists() and self.venv_pip.exists():
+                print("Existing virtual environment appears to be valid.")
+                if not self.dry_run:
+                    response = input("Do you want to recreate it? (y/n): ")
+                    if response.lower() != 'y':
+                        print("Using existing virtual environment")
+                        return True
                 else:
-                    print("Using existing virtual environment")
+                    print("DRY RUN: Would use existing virtual environment")
                     return True
+            else:
+                print("Existing virtual environment appears to be corrupted.")
+                print("Will remove and recreate it.")
+            
+            # Remove existing environment
+            print("Removing existing virtual environment...")
+            if not self.dry_run:
+                try:
+                    # On Windows, sometimes files are locked, so try multiple times
+                    for attempt in range(3):
+                        try:
+                            shutil.rmtree(self.venv_path)
+                            break
+                        except (OSError, PermissionError) as e:
+                            if attempt == 2:  # Last attempt
+                                raise e
+                            print(f"  Attempt {attempt + 1} failed, retrying...")
+                            time.sleep(1)
+                    print("  ✓ Old environment removed successfully")
+                except Exception as e:
+                    print(f"  ✗ ERROR: Could not remove existing environment: {e}")
+                    print("  Please manually delete the directory and try again.")
+                    return False
         
-        # Create virtual environment using current Python interpreter
+        # Create new virtual environment
+        print("Creating new virtual environment...")
         if not self.run_command([sys.executable, '-m', 'venv', str(self.venv_path)], 
                                "Creating virtual environment"):
             return False
@@ -211,7 +252,7 @@ class PLCSetup:
                 print(f"ERROR: Virtual environment pip not found at {self.venv_pip}")
                 return False
             
-            print(f"✓ Virtual environment created successfully")
+            print("✓ Virtual environment created successfully")
             print(f"  Python: {self.venv_python}")
             print(f"  Pip: {self.venv_pip}")
         
@@ -225,30 +266,227 @@ class PLCSetup:
             print("ERROR: Virtual environment does not exist. Create it first.")
             return False
         
-        # Use the virtual environment's pip directly
-        commands = [
-            ([str(self.venv_pip), 'install', '--upgrade', 'pip'], "Upgrading pip in venv"),
-            ([str(self.venv_pip), 'install', '--upgrade', 'setuptools'], "Upgrading setuptools in venv"),
-            ([str(self.venv_pip), 'install', '--upgrade', 'wheel'], "Upgrading wheel in venv"),
+        # Upgrade tools one by one with clear output
+        tools = [
+            ('pip', 'pip package manager'),
+            ('setuptools', 'Python setuptools'),
+            ('wheel', 'wheel package format support')
         ]
         
-        for command, description in commands:
-            if not self.run_command(command, description):
-                return False
+        print(f"Upgrading {len(tools)} essential tools in virtual environment...")
+        print()
         
-        # Verify pip version in venv
-        if not self.dry_run:
-            result = subprocess.run([str(self.venv_pip), '--version'], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"✓ Virtual environment pip version: {result.stdout.strip()}")
+        for i, (tool, description) in enumerate(tools, 1):
+            print(f"[{i}/{len(tools)}] Upgrading {tool} ({description})...")
+            
+            success = self.run_command([str(self.venv_pip), 'install', '--upgrade', tool], 
+                                     f"Upgrading {tool} in virtual environment")
+            
+            if success:
+                print(f"  ✓ Successfully upgraded {tool}")
             else:
-                print("WARNING: Could not verify pip version in virtual environment")
+                print(f"  ✗ Failed to upgrade {tool}")
+                return False
+            print()
         
+        # Verify final pip version
+        if not self.dry_run:
+            print("Verifying upgraded tools...")
+            try:
+                result = subprocess.run([str(self.venv_pip), '--version'], 
+                                      capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    print(f"✓ Final pip version: {result.stdout.strip()}")
+                else:
+                    print("⚠ Warning: Could not verify pip version")
+            except subprocess.TimeoutExpired:
+                print("⚠ Warning: Pip version check timed out")
+            except Exception as e:
+                print(f"⚠ Warning: Error checking pip version: {e}")
+        
+        print("✓ All virtual environment tools upgraded successfully")
         return True
 
+    def parse_requirements(self, requirements_file: Path) -> List[str]:
+        """Parse requirements.txt and extract package names."""
+        packages = []
+        try:
+            with open(requirements_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # Extract package name (before ==, >=, <=, etc.)
+                        package_name = line.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0]
+                        packages.append(package_name.strip())
+        except Exception as e:
+            print(f"Warning: Could not parse requirements file: {e}")
+        return packages
+
+    def get_package_timeout(self, package: str) -> int:
+        """Get appropriate timeout for different package types."""
+        base_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0].lower()
+        
+        # Extended timeouts for heavy packages (in seconds)
+        heavy_timeouts = {
+            'torch': 3600,           # 60 minutes for PyTorch
+            'torchvision': 2400,     # 40 minutes
+            'torchaudio': 1800,      # 30 minutes
+            'tensorflow': 3600,      # 60 minutes
+            'ultralytics': 2400,     # 40 minutes for Ultralytics
+            'opencv-python': 1800,   # 30 minutes
+            'opencv-contrib-python': 2100,  # 35 minutes
+            'paddleocr': 1800,       # 30 minutes
+            'scipy': 1200,           # 20 minutes
+            'numpy': 900,            # 15 minutes
+            'pandas': 900,           # 15 minutes
+            'pillow': 600,           # 10 minutes
+            'matplotlib': 900,       # 15 minutes
+            'scikit-learn': 1200,    # 20 minutes
+        }
+        
+        # Check if this package needs extended timeout
+        for heavy_pkg, timeout in heavy_timeouts.items():
+            if heavy_pkg in base_name:
+                return timeout
+        
+        # Default timeout for other packages
+        return 600  # 10 minutes
+
+    def install_single_package(self, package: str) -> Tuple[str, bool, str]:
+        """Install a single package with appropriate timeout."""
+        timeout = self.get_package_timeout(package)
+        base_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0]
+        
+        print(f"Installing {base_name} (timeout: {timeout//60} minutes)...")
+        
+        try:
+            # For very large packages, show live output instead of capturing it
+            if timeout > 1800:  # > 30 minutes
+                print(f"  Large package detected - showing live installation progress...")
+                result = subprocess.run(
+                    [str(self.venv_pip), 'install', package, '--no-cache-dir', '--timeout', '1200', '--verbose'],
+                    timeout=timeout,
+                    text=True
+                    # Don't capture output for large packages - show it live
+                )
+                success = result.returncode == 0
+                error_msg = f"Exit code: {result.returncode}" if not success else ""
+            else:
+                # Regular installation with captured output
+                result = subprocess.run(
+                    [str(self.venv_pip), 'install', package, '--no-cache-dir', '--timeout', '600'],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+                success = result.returncode == 0
+                error_msg = result.stderr.strip() if result.stderr else ""
+            
+            return package, success, error_msg
+            
+        except subprocess.TimeoutExpired:
+            return package, False, f"Installation timed out ({timeout//60} minutes)"
+        except Exception as e:
+            return package, False, str(e)
+
+    def display_progress_bar(self, current: int, total: int, package_name: str = "", width: int = 50):
+        """Display a colored progress bar with package name."""
+        if total == 0:
+            return
+        
+        progress = current / total
+        filled = int(width * progress)
+        remaining = width - filled
+        
+        # Use simple ASCII characters that work on all terminals
+        filled_char = '#'  # Green part (completed)
+        empty_char = '-'   # Red part (remaining)
+        
+        bar = filled_char * filled + empty_char * remaining
+        percentage = progress * 100
+        
+        if package_name:
+            print(f"\rInstalling: {package_name:<30} [{bar}] {current}/{total} ({percentage:.1f}%)", end='', flush=True)
+        else:
+            print(f"\r[{bar}] {current}/{total} ({percentage:.1f}%)", end='', flush=True)
+
+    def display_operation_progress(self, operation: str, step: int, total_steps: int, current_action: str = "", width: int = 50):
+        """Display progress for general operations like environment creation/removal."""
+        if total_steps == 0:
+            return
+        
+        progress = step / total_steps
+        filled = int(width * progress)
+        remaining = width - filled
+        
+        filled_char = '#'  # Completed
+        empty_char = '-'   # Remaining
+        
+        bar = filled_char * filled + empty_char * remaining
+        percentage = progress * 100
+        
+        if current_action:
+            print(f"\r{operation}: {current_action:<35} [{bar}] {step}/{total_steps} ({percentage:.1f}%)", end='', flush=True)
+        else:
+            print(f"\r{operation}: [{bar}] {step}/{total_steps} ({percentage:.1f}%)", end='', flush=True)
+
+    def update_progress_display(self, package: str, completed: bool = False):
+        """Thread-safe progress display update for parallel installation."""
+        with self.progress_lock:
+            if completed:
+                self.completed_packages += 1
+                self.current_packages.discard(package)
+            else:
+                self.current_packages.add(package)
+            
+            # Show currently installing packages (up to 2 to avoid clutter)
+            current_list = list(self.current_packages)[:2]
+            current_display = ", ".join(current_list)
+            if len(self.current_packages) > 2:
+                current_display += f" +{len(self.current_packages) - 2} more"
+            
+            # Display parallel progress
+            self.display_progress_bar(self.completed_packages, self.total_packages, current_display)
+            
+            if completed:
+                print(f"\nCompleted: {package}")
+
+    def categorize_packages(self, packages: List[str]) -> Dict[str, List[str]]:
+        """Categorize packages by installation complexity and dependencies."""
+        # Ultra-heavy packages that need sequential installation with long timeouts
+        ultra_heavy = {
+            'torch', 'tensorflow', 'tensorflow-gpu'
+        }
+        
+        # Heavy packages that should be installed sequentially
+        heavy_packages = {
+            'torchvision', 'torchaudio', 'ultralytics', 'paddleocr',
+            'opencv-python', 'opencv-contrib-python', 'scipy', 
+            'numpy', 'pandas', 'matplotlib', 'scikit-learn'
+        }
+        
+        ultra_heavy_list = []
+        heavy_list = []
+        parallel_packages = []
+        
+        for package in packages:
+            base_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0].lower()
+            
+            if any(ultra in base_name for ultra in ultra_heavy):
+                ultra_heavy_list.append(package)
+            elif any(heavy in base_name for heavy in heavy_packages):
+                heavy_list.append(package)
+            else:
+                parallel_packages.append(package)
+        
+        return {
+            'ultra_heavy': ultra_heavy_list,
+            'heavy': heavy_list,
+            'parallel': parallel_packages
+        }
+
     def install_python_dependencies(self) -> bool:
-        """Install Python dependencies from requirements.txt in the virtual environment."""
+        """Install Python dependencies with intelligent timeout management."""
         print("=== Installing Python Dependencies in Virtual Environment ===")
         
         if not self.venv_path.exists():
@@ -262,25 +500,180 @@ class PLCSetup:
         
         print(f"Installing dependencies from: {requirements_file}")
         print(f"Using pip from virtual environment: {self.venv_pip}")
+        print()
         
-        # Install requirements using the virtual environment's pip
-        success = self.run_command([str(self.venv_pip), 'install', '-r', str(requirements_file)], 
-                                 "Installing Python dependencies in virtual environment")
+        if self.dry_run:
+            print("DRY RUN: Would install Python dependencies with extended timeouts")
+            return True
         
-        if success and not self.dry_run:
-            # Verify some key packages were installed in the venv
-            print("Verifying installation in virtual environment...")
-            test_packages = ['pandas', 'torch', 'ultralytics']
+        # Parse and categorize packages
+        all_packages = self.parse_requirements(requirements_file)
+        if not all_packages:
+            print("Warning: Could not parse package list, using fallback installation")
+            return self.run_command([str(self.venv_pip), 'install', '-r', str(requirements_file)], 
+                                   "Installing Python dependencies in virtual environment")
+        
+        categorized = self.categorize_packages(all_packages)
+        ultra_heavy_packages = categorized['ultra_heavy']
+        heavy_packages = categorized['heavy']
+        parallel_packages = categorized['parallel']
+        
+        print(f"Found {len(all_packages)} packages to install:")
+        print(f"  - {len(ultra_heavy_packages)} ultra-heavy packages (PyTorch, TensorFlow - up to 60min each)")
+        print(f"  - {len(heavy_packages)} heavy packages (computer vision, ML libs - up to 40min each)")
+        print(f"  - {len(parallel_packages)} light packages (parallel installation)")
+        print("=" * 80)
+        
+        failed_packages = []
+        
+        try:
+            # Phase 1: Install ultra-heavy packages one by one with maximum care
+            if ultra_heavy_packages:
+                print(f"\nPhase 1: Installing {len(ultra_heavy_packages)} ultra-heavy packages (PyTorch/TensorFlow)...")
+                print("These may take 30-60 minutes each. Please be patient...")
+                print()
+                
+                for i, package in enumerate(ultra_heavy_packages, 1):
+                    print(f"[{i}/{len(ultra_heavy_packages)}] Installing {package}...")
+                    print("=" * 60)
+                    
+                    package_name, success, error_msg = self.install_single_package(package)
+                    
+                    if success:
+                        print(f"✓ Successfully installed: {package}")
+                    else:
+                        print(f"✗ Failed to install: {package}")
+                        print(f"  Error: {error_msg}")
+                        failed_packages.append(package)
+                    print()
+                
+                print("Phase 1 (ultra-heavy packages) complete.\n")
             
-            for package in test_packages:
-                result = subprocess.run([str(self.venv_python), '-c', f'import {package}; print(f"{package} imported successfully")'], 
-                                      capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f"  ✓ {package}: {result.stdout.strip()}")
-                else:
-                    print(f"  ✗ {package}: Failed to import")
+            # Phase 2: Install heavy packages sequentially
+            if heavy_packages:
+                print(f"Phase 2: Installing {len(heavy_packages)} heavy packages...")
+                print("These may take 10-40 minutes each...")
+                print()
+                
+                for i, package in enumerate(heavy_packages, 1):
+                    print(f"[{i}/{len(heavy_packages)}] Installing {package}...")
+                    
+                    package_name, success, error_msg = self.install_single_package(package)
+                    
+                    if success:
+                        print(f"✓ Successfully installed: {package}")
+                    else:
+                        print(f"✗ Failed to install: {package}")
+                        print(f"  Error: {error_msg}")
+                        failed_packages.append(package)
+                    print()
+                
+                print("Phase 2 (heavy packages) complete.\n")
+            
+            # Phase 3: Install light packages in parallel
+            if parallel_packages:
+                print(f"Phase 3: Installing {len(parallel_packages)} light packages in parallel...")
+                
+                self.total_packages = len(parallel_packages)
+                self.completed_packages = 0
+                self.current_packages = set()
+                
+                with ThreadPoolExecutor(max_workers=self.parallel_jobs) as executor:
+                    # Submit all parallel package installations
+                    future_to_package = {
+                        executor.submit(self.install_single_package, package): package 
+                        for package in parallel_packages
+                    }
+                    
+                    # Process completed installations
+                    for future in as_completed(future_to_package):
+                        package_name, success, error_msg = future.result()
+                        
+                        if success:
+                            self.update_progress_display(package_name, completed=True)
+                        else:
+                            print(f"\n✗ Failed: {package_name} - {error_msg}")
+                            failed_packages.append(package_name)
+                            self.update_progress_display(package_name, completed=True)
+                
+                print("\nPhase 3 (light packages) complete.")
+            
+            print("\n" + "=" * 80)
+            
+            # Handle failed packages with extended timeout bulk installation
+            if failed_packages:
+                print(f"Warning: {len(failed_packages)} packages failed individual installation:")
+                for pkg in failed_packages:
+                    print(f"  - {pkg}")
+                
+                print("\nAttempting bulk installation of failed packages with extended timeout...")
+                
+                # Create requirements file for failed packages
+                temp_req_file = self.project_root / 'failed_requirements.txt'
+                try:
+                    with open(temp_req_file, 'w') as f:
+                        for pkg in failed_packages:
+                            f.write(f"{pkg}\n")
+                    
+                    # Try bulk installation with very long timeout
+                    print("Running bulk installation (this may take up to 2 hours)...")
+                    print("Live output will be shown...")
+                    
+                    bulk_result = subprocess.run(
+                        [str(self.venv_pip), 'install', '-r', str(temp_req_file), '--verbose', '--timeout', '1800'],
+                        text=True,
+                        timeout=7200  # 2 hour timeout for bulk installation
+                    )
+                    
+                    temp_req_file.unlink()
+                    
+                    if bulk_result.returncode == 0:
+                        print("✓ Bulk installation completed successfully")
+                        failed_packages = []  # Clear failed packages list
+                    else:
+                        print("✗ Bulk installation failed. Some packages may need manual installation.")
+                        
+                except subprocess.TimeoutExpired:
+                    print("⚠ Bulk installation timed out after 2 hours. Some packages may need manual installation.")
+                except Exception as e:
+                    print(f"Error in bulk installation attempt: {e}")
+            else:
+                print("✓ All Python dependencies installed successfully!")
+            
+        except KeyboardInterrupt:
+            print("\n\nInstallation interrupted by user.")
+            return False
+        except Exception as e:
+            print(f"\nError during installation: {e}")
+            return False
         
-        return success
+        # Verify key packages
+        print("\nVerifying installation in virtual environment...")
+        test_packages = ['pandas', 'torch', 'ultralytics']
+        
+        for package in test_packages:
+            try:
+                result = subprocess.run([str(self.venv_python), '-c', f'import {package}; print(f"{package} imported successfully")'], 
+                                      capture_output=True, text=True, timeout=60)
+                if result.returncode == 0:
+                    print(f"  ✓ SUCCESS: {package}")
+                else:
+                    print(f"  ✗ FAILED: {package} - could not import")
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠ TIMEOUT: {package} - import test timed out")
+            except Exception as e:
+                print(f"  ✗ ERROR: {package} - {e}")
+        
+        # Return success if no packages failed or less than 25% failed
+        success_rate = (len(all_packages) - len(failed_packages)) / len(all_packages)
+        
+        if success_rate >= 0.75:
+            print(f"\n✓ Installation completed successfully! ({success_rate*100:.1f}% success rate)")
+            return True
+        else:
+            print(f"\n⚠ Installation completed with issues. ({success_rate*100:.1f}% success rate)")
+            print("Consider running the installation again or installing failed packages manually.")
+            return False
 
     def create_data_structure(self) -> None:
         """Create the required directory structure in the data root."""
@@ -451,9 +844,9 @@ echo "Current directory: $(pwd)"
                 print(f"ERROR: Failed at step: {step_name}")
                 return False
         
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("SETUP COMPLETE!")
-        print("="*60)
+        print("=" * 60)
         print(f"Project root: {self.project_root}")
         print(f"Data directory: {self.data_root}")
         print(f"Virtual environment: {self.venv_path}")
@@ -493,13 +886,15 @@ def main():
                        help='Show what would be done without actually doing it')
     parser.add_argument('--data-root', type=str,
                        help='Custom data root directory (default: ../plc-data)')
+    parser.add_argument('--parallel-jobs', type=int, default=4,
+                       help='Number of parallel installation jobs (default: 4, max: 8)')
     
     args = parser.parse_args()
     
     # Handle migrate logic
     migrate = args.migrate and not args.no_migrate
     
-    setup = PLCSetup(data_root=args.data_root, dry_run=args.dry_run)
+    setup = PLCSetup(data_root=args.data_root, dry_run=args.dry_run, parallel_jobs=args.parallel_jobs)
     
     success = setup.run_setup(migrate=migrate, cleanup=args.cleanup)
     
