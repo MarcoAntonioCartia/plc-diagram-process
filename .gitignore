@@ -30,6 +30,7 @@ MANIFEST
 # Virtual environments
 venv/
 env/
+yolovenv/
 ENV/
 env.bak/
 venv.bak/

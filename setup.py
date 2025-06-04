@@ -6,7 +6,7 @@ This script handles:
 2. Data migration from old structure
 3. Virtual environment creation
 4. System dependency installation
-5. Python dependency installation
+5. Python dependency installation (correctly in venv)
 6. Project configuration
 
 Run with: python setup.py
@@ -30,19 +30,41 @@ class PLCSetup:
         self.dry_run = dry_run
         self.system = platform.system().lower()
         
+        # Set up virtual environment paths
+        if self.system == 'windows':
+            self.venv_python = self.venv_path / 'Scripts' / 'python.exe'
+            self.venv_pip = self.venv_path / 'Scripts' / 'pip.exe'
+            self.venv_activate = self.venv_path / 'Scripts' / 'activate.bat'
+        else:
+            self.venv_python = self.venv_path / 'bin' / 'python'
+            self.venv_pip = self.venv_path / 'bin' / 'pip'
+            self.venv_activate = self.venv_path / 'bin' / 'activate'
+        
         print(f"Project root: {self.project_root}")
         print(f"Data root: {self.data_root}")
         print(f"Virtual environment: {self.venv_path}")
+        print(f"Virtual environment Python: {self.venv_python}")
+        print(f"Virtual environment pip: {self.venv_pip}")
         print(f"System: {self.system}")
         if self.dry_run:
             print("DRY RUN MODE - No actual changes will be made")
         print()
 
-    def run_command(self, command: List[str], description: str, shell: bool = False) -> bool:
+    def run_command(self, command: List[str], description: str, shell: bool = False, use_venv: bool = False) -> bool:
         """Run a system command with error handling."""
         print(f"Running: {description}")
+        
+        # If use_venv is True and we have a venv, use the venv executables
+        if use_venv and self.venv_path.exists():
+            if command[0] == 'python' or command[0] == 'python3':
+                command[0] = str(self.venv_python)
+            elif command[0] == 'pip':
+                command[0] = str(self.venv_pip)
+        
         if self.dry_run:
             print(f"  DRY RUN: Would execute: {' '.join(command) if isinstance(command, list) else command}")
+            if use_venv:
+                print(f"  DRY RUN: Using virtual environment at: {self.venv_path}")
             return True
         
         try:
@@ -54,6 +76,7 @@ class PLCSetup:
             
             if result.stdout:
                 print(f"  Output: {result.stdout.strip()}")
+            print(f"  Success: {description}")
             return True
         except subprocess.CalledProcessError as e:
             print(f"  ERROR: {e}")
@@ -171,50 +194,93 @@ class PLCSetup:
                     print("Removing existing virtual environment...")
                     shutil.rmtree(self.venv_path)
                 else:
+                    print("Using existing virtual environment")
                     return True
         
-        # Create virtual environment
+        # Create virtual environment using current Python interpreter
         if not self.run_command([sys.executable, '-m', 'venv', str(self.venv_path)], 
                                "Creating virtual environment"):
             return False
         
-        # Get python executable path in venv
-        if self.system == 'windows':
-            python_exe = self.venv_path / 'Scripts' / 'python.exe'
-            pip_exe = self.venv_path / 'Scripts' / 'pip.exe'
-        else:
-            python_exe = self.venv_path / 'bin' / 'python'
-            pip_exe = self.venv_path / 'bin' / 'pip'
+        # Verify the virtual environment was created correctly
+        if not self.dry_run:
+            if not self.venv_python.exists():
+                print(f"ERROR: Virtual environment Python not found at {self.venv_python}")
+                return False
+            if not self.venv_pip.exists():
+                print(f"ERROR: Virtual environment pip not found at {self.venv_pip}")
+                return False
+            
+            print(f"✓ Virtual environment created successfully")
+            print(f"  Python: {self.venv_python}")
+            print(f"  Pip: {self.venv_pip}")
         
-        # Upgrade pip and install build tools
+        return True
+
+    def upgrade_venv_tools(self) -> bool:
+        """Upgrade pip, setuptools, and wheel in the virtual environment."""
+        print("=== Upgrading Virtual Environment Tools ===")
+        
+        if not self.venv_path.exists():
+            print("ERROR: Virtual environment does not exist. Create it first.")
+            return False
+        
+        # Use the virtual environment's pip directly
         commands = [
-            ([str(pip_exe), 'install', '--upgrade', 'pip', 'setuptools', 'wheel'], 
-             "Upgrading pip and installing build tools"),
+            ([str(self.venv_pip), 'install', '--upgrade', 'pip'], "Upgrading pip in venv"),
+            ([str(self.venv_pip), 'install', '--upgrade', 'setuptools'], "Upgrading setuptools in venv"),
+            ([str(self.venv_pip), 'install', '--upgrade', 'wheel'], "Upgrading wheel in venv"),
         ]
         
         for command, description in commands:
             if not self.run_command(command, description):
                 return False
         
+        # Verify pip version in venv
+        if not self.dry_run:
+            result = subprocess.run([str(self.venv_pip), '--version'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"✓ Virtual environment pip version: {result.stdout.strip()}")
+            else:
+                print("WARNING: Could not verify pip version in virtual environment")
+        
         return True
 
     def install_python_dependencies(self) -> bool:
-        """Install Python dependencies from requirements.txt."""
-        print("=== Installing Python Dependencies ===")
+        """Install Python dependencies from requirements.txt in the virtual environment."""
+        print("=== Installing Python Dependencies in Virtual Environment ===")
+        
+        if not self.venv_path.exists():
+            print("ERROR: Virtual environment does not exist. Create it first.")
+            return False
         
         requirements_file = self.project_root / 'requirements.txt'
         if not requirements_file.exists():
             print(f"ERROR: requirements.txt not found at {requirements_file}")
             return False
         
-        # Get pip executable path in venv
-        if self.system == 'windows':
-            pip_exe = self.venv_path / 'Scripts' / 'pip.exe'
-        else:
-            pip_exe = self.venv_path / 'bin' / 'pip'
+        print(f"Installing dependencies from: {requirements_file}")
+        print(f"Using pip from virtual environment: {self.venv_pip}")
         
-        return self.run_command([str(pip_exe), 'install', '-r', str(requirements_file)], 
-                               "Installing Python dependencies")
+        # Install requirements using the virtual environment's pip
+        success = self.run_command([str(self.venv_pip), 'install', '-r', str(requirements_file)], 
+                                 "Installing Python dependencies in virtual environment")
+        
+        if success and not self.dry_run:
+            # Verify some key packages were installed in the venv
+            print("Verifying installation in virtual environment...")
+            test_packages = ['pandas', 'torch', 'ultralytics']
+            
+            for package in test_packages:
+                result = subprocess.run([str(self.venv_python), '-c', f'import {package}; print(f"{package} imported successfully")'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"  ✓ {package}: {result.stdout.strip()}")
+                else:
+                    print(f"  ✗ {package}: Failed to import")
+        
+        return success
 
     def create_data_structure(self) -> None:
         """Create the required directory structure in the data root."""
@@ -330,10 +396,22 @@ class PLCSetup:
         
         if self.system == 'windows':
             activate_script = self.project_root / 'activate.bat'
-            content = f'@echo off\ncall "{self.venv_path}\\Scripts\\activate.bat"\n'
+            content = f'''@echo off
+echo Activating PLC Diagram Processor environment...
+call "{self.venv_activate}"
+echo Virtual environment activated: {self.venv_path}
+echo Python executable: {self.venv_python}
+echo Current directory: %cd%
+'''
         else:
             activate_script = self.project_root / 'activate.sh'
-            content = f'#!/bin/bash\nsource "{self.venv_path}/bin/activate"\n'
+            content = f'''#!/bin/bash
+echo "Activating PLC Diagram Processor environment..."
+source "{self.venv_activate}"
+echo "Virtual environment activated: {self.venv_path}"
+echo "Python executable: {self.venv_python}"
+echo "Current directory: $(pwd)"
+'''
         
         if not self.dry_run:
             with open(activate_script, 'w') as f:
@@ -352,7 +430,8 @@ class PLCSetup:
             ("Installing system dependencies", self.install_system_dependencies),
             ("Creating data directory structure", lambda: (self.create_data_structure(), True)[1]),
             ("Creating virtual environment", self.create_virtual_environment),
-            ("Installing Python dependencies", self.install_python_dependencies),
+            ("Upgrading virtual environment tools", self.upgrade_venv_tools),
+            ("Installing Python dependencies in virtual environment", self.install_python_dependencies),
             ("Creating activation scripts", lambda: (self.create_activation_script(), True)[1]),
         ]
         
@@ -364,30 +443,35 @@ class PLCSetup:
                     steps.insert(-1, ("Cleaning up old directories", lambda: (self.cleanup_old_data(), True)[1]))
         
         for step_name, step_func in steps:
-            print(f"\n{'='*50}")
+            print(f"\n{'='*60}")
             print(f"Step: {step_name}")
-            print('='*50)
+            print('='*60)
             
             if not step_func():
                 print(f"ERROR: Failed at step: {step_name}")
                 return False
         
-        print("\n" + "="*50)
+        print("\n" + "="*60)
         print("SETUP COMPLETE!")
-        print("="*50)
+        print("="*60)
         print(f"Project root: {self.project_root}")
         print(f"Data directory: {self.data_root}")
         print(f"Virtual environment: {self.venv_path}")
+        print(f"Virtual environment Python: {self.venv_python}")
+        print(f"Virtual environment pip: {self.venv_pip}")
         print()
         print("To activate the environment:")
         if self.system == 'windows':
             print(f"  {self.project_root}\\activate.bat")
             print("  OR")
-            print(f"  {self.venv_path}\\Scripts\\activate.bat")
+            print(f"  {self.venv_activate}")
         else:
             print(f"  source {self.project_root}/activate.sh")
             print("  OR")
-            print(f"  source {self.venv_path}/bin/activate")
+            print(f"  source {self.venv_activate}")
+        print()
+        print("To verify the installation:")
+        print(f"  {self.venv_python} -c \"import torch, ultralytics, pandas; print('All packages installed correctly!')\"")
         print()
         print("Your project is now ready for training and testing!")
         print("Next steps:")
