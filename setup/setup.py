@@ -21,6 +21,7 @@ import platform
 import threading
 import queue
 import time
+import yaml
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -783,6 +784,274 @@ class PLCSetup:
                     except Exception as e:
                         print(f"  ERROR: Failed to remove {old_dir}: {e}")
 
+    def load_download_config(self) -> Dict:
+        """Load download configuration from config/download_config.yaml"""
+        config_path = self.project_root / 'setup' / 'config' / 'download_config.yaml'
+        
+        if not config_path.exists():
+            print(f"Warning: Download config not found at {config_path}")
+            print("Using default configuration")
+            return self._create_default_download_config()
+        
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            return config
+        except Exception as e:
+            print(f"Error loading download config: {e}")
+            print("Using default configuration")
+            return self._create_default_download_config()
+    
+    def _create_default_download_config(self) -> Dict:
+        """Create default download configuration"""
+        return {
+            'onedrive': {
+                'base_url': '',
+                'dataset': {
+                    'auto_select_latest': True,
+                    'keep_old_versions': True
+                }
+            },
+            'models': {
+                'default_model': 'yolo11m.pt',
+                'download_multiple': True,
+                'verify_downloads': True
+            },
+            'setup': {
+                'auto_download_dataset': False,
+                'auto_download_models': False,
+                'prompt_for_downloads': True,
+                'show_empty_folder_warnings': True
+            }
+        }
+    
+    def setup_data_and_models(self) -> bool:
+        """Setup data and model downloads"""
+        print("=== Data and Model Setup ===")
+        
+        # Load download configuration
+        config = self.load_download_config()
+        
+        if config['setup']['prompt_for_downloads']:
+            return self.interactive_download_prompt(config)
+        elif config['setup']['auto_download_dataset'] or config['setup']['auto_download_models']:
+            return self.automatic_download(config)
+        else:
+            # Just show warnings about empty folders
+            if config['setup']['show_empty_folder_warnings']:
+                self.check_and_warn_empty_folders()
+            return True
+    
+    def interactive_download_prompt(self, config: Dict) -> bool:
+        """Interactive prompts for downloading data and models"""
+        print("\nData and Model Download Options:")
+        print("1. Download datasets from OneDrive")
+        print("2. Download YOLO models")
+        print("3. Both datasets and models")
+        print("4. Skip downloads (setup empty folders only)")
+        
+        if self.dry_run:
+            print("DRY RUN: Would prompt user for download options")
+            return True
+        
+        while True:
+            try:
+                choice = input("\nChoose option (1-4): ").strip()
+                
+                if choice == "1":
+                    return self.download_datasets_interactive(config)
+                elif choice == "2":
+                    return self.download_models_interactive(config)
+                elif choice == "3":
+                    dataset_success = self.download_datasets_interactive(config)
+                    model_success = self.download_models_interactive(config)
+                    return dataset_success and model_success
+                elif choice == "4":
+                    print("Skipping downloads...")
+                    if config['setup']['show_empty_folder_warnings']:
+                        self.check_and_warn_empty_folders()
+                    return True
+                else:
+                    print("Invalid choice. Please enter 1, 2, 3, or 4.")
+                    
+            except KeyboardInterrupt:
+                print("\nSetup interrupted by user.")
+                return False
+    
+    def download_datasets_interactive(self, config: Dict) -> bool:
+        """Interactive dataset download"""
+        try:
+            # Import managers here to avoid import issues during setup
+            sys.path.append(str(self.project_root / 'src'))
+            from utils.onedrive_manager import OneDriveManager
+            from utils.dataset_manager import DatasetManager
+            
+            print("\n=== Dataset Download ===")
+            
+            # Check if OneDrive URL is configured
+            if not config['onedrive']['base_url']:
+                print("Error: OneDrive URL not configured in config/download_config.yaml")
+                return False
+            
+            onedrive_manager = OneDriveManager(config)
+            dataset_manager = DatasetManager(config)
+            
+            # List available datasets
+            print("Checking available datasets...")
+            available_datasets = onedrive_manager.list_available_datasets()
+            
+            if not available_datasets:
+                print("No datasets found")
+                return False
+            
+            print(f"\nFound {len(available_datasets)} datasets:")
+            for i, dataset in enumerate(available_datasets, 1):
+                print(f"  {i}. {dataset['name']} ({dataset.get('date', 'Unknown date')})")
+            
+            print(f"  {len(available_datasets) + 1}. Download latest automatically")
+            print(f"  {len(available_datasets) + 2}. Skip dataset download")
+            
+            while True:
+                try:
+                    choice = input(f"\nSelect dataset (1-{len(available_datasets) + 2}): ").strip()
+                    choice_num = int(choice)
+                    
+                    if 1 <= choice_num <= len(available_datasets):
+                        # Download specific dataset
+                        selected_dataset = available_datasets[choice_num - 1]
+                        dataset_path = onedrive_manager.download_dataset(selected_dataset['name'], use_latest=False)
+                        
+                        if dataset_path:
+                            # Activate the dataset
+                            dataset_name = Path(dataset_path).name
+                            activation_method = dataset_manager.activate_dataset(dataset_name)
+                            print(f"Dataset activated using {activation_method}")
+                            return True
+                        else:
+                            print("Dataset download failed")
+                            return False
+                            
+                    elif choice_num == len(available_datasets) + 1:
+                        # Download latest
+                        dataset_path = onedrive_manager.download_dataset(use_latest=True)
+                        
+                        if dataset_path:
+                            # Activate the dataset
+                            dataset_name = Path(dataset_path).name
+                            activation_method = dataset_manager.activate_dataset(dataset_name)
+                            print(f"Dataset activated using {activation_method}")
+                            return True
+                        else:
+                            print("Dataset download failed")
+                            return False
+                            
+                    elif choice_num == len(available_datasets) + 2:
+                        # Skip
+                        print("Skipping dataset download")
+                        return True
+                    else:
+                        print(f"Invalid choice. Please enter 1-{len(available_datasets) + 2}")
+                        
+                except ValueError:
+                    print("Please enter a valid number")
+                except KeyboardInterrupt:
+                    print("\nDataset download interrupted")
+                    return False
+                    
+        except ImportError as e:
+            print(f"Error importing dataset managers: {e}")
+            print("Make sure the virtual environment is activated and dependencies are installed")
+            return False
+        except Exception as e:
+            print(f"Error during dataset download: {e}")
+            return False
+    
+    def download_models_interactive(self, config: Dict) -> bool:
+        """Interactive model download"""
+        try:
+            # Import managers here to avoid import issues during setup
+            sys.path.append(str(self.project_root / 'src'))
+            from utils.model_manager import ModelManager
+            
+            print("\n=== Model Download ===")
+            
+            model_manager = ModelManager(config)
+            
+            # Interactive model selection
+            selected_models = model_manager.interactive_model_selection()
+            
+            if not selected_models:
+                print("No models selected")
+                return True
+            
+            # Download selected models
+            results = model_manager.download_multiple_models(selected_models)
+            
+            # Check results
+            successful = sum(1 for success in results.values() if success)
+            total = len(results)
+            
+            if successful == total:
+                print(f"All {total} models downloaded successfully!")
+                return True
+            elif successful > 0:
+                print(f"{successful}/{total} models downloaded successfully")
+                return True
+            else:
+                print("No models were downloaded successfully")
+                return False
+                
+        except ImportError as e:
+            print(f"Error importing model manager: {e}")
+            print("Make sure the virtual environment is activated and dependencies are installed")
+            return False
+        except Exception as e:
+            print(f"Error during model download: {e}")
+            return False
+    
+    def automatic_download(self, config: Dict) -> bool:
+        """Automatic download based on configuration"""
+        success = True
+        
+        if config['setup']['auto_download_dataset']:
+            print("Auto-downloading dataset...")
+            success &= self.download_datasets_interactive(config)
+        
+        if config['setup']['auto_download_models']:
+            print("Auto-downloading models...")
+            success &= self.download_models_interactive(config)
+        
+        return success
+    
+    def check_and_warn_empty_folders(self):
+        """Check for empty folders and warn user"""
+        print("\n=== Checking Data Folders ===")
+        
+        folders_to_check = [
+            ('datasets', 'No datasets found. Use scripts/manage_datasets.py to download datasets.'),
+            ('models/pretrained', 'No pretrained models found. Use scripts/manage_models.py to download models.'),
+            ('raw/pdfs', 'No input PDFs found. Place your PDF diagrams here for processing.'),
+        ]
+        
+        empty_folders = []
+        
+        for folder, message in folders_to_check:
+            folder_path = self.data_root / folder
+            
+            if not folder_path.exists() or not any(folder_path.iterdir()):
+                empty_folders.append((folder, message))
+        
+        if empty_folders:
+            print("Warning: The following folders are empty:")
+            for folder, message in empty_folders:
+                print(f"  - {folder}: {message}")
+            
+            print("\nTo download data later, use:")
+            print("  python scripts/manage_datasets.py --interactive")
+            print("  python scripts/manage_models.py --interactive")
+        else:
+            print("All data folders contain files")
+
     def create_activation_script(self) -> None:
         """Create convenience scripts for activating the environment."""
         print("=== Creating activation scripts ===")
@@ -825,6 +1094,7 @@ echo "Current directory: $(pwd)"
             ("Creating virtual environment", self.create_virtual_environment),
             ("Upgrading virtual environment tools", self.upgrade_venv_tools),
             ("Installing Python dependencies in virtual environment", self.install_python_dependencies),
+            ("Setting up data and models", self.setup_data_and_models),
             ("Creating activation scripts", lambda: (self.create_activation_script(), True)[1]),
         ]
         
