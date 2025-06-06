@@ -16,6 +16,7 @@ sys.path.append(str(project_root))
 from src.detection.detect_pipeline import PLCDetectionPipeline
 from src.detection.detect_pipeline_parallel import ParallelPLCDetectionPipeline
 from src.detection.unified_parallel_pipeline import UnifiedParallelPipeline
+from src.detection.detect_pipeline_gpu_optimized import GPUOptimizedPLCDetectionPipeline
 from src.preprocessing.preprocessing_parallel import ParallelPDFProcessor
 from src.preprocessing.SnipPdfToPng import process_pdf_folder, find_poppler_path
 from src.config import get_config
@@ -197,6 +198,38 @@ def benchmark_detection_pipelines(diagrams_folder, output_folder, model_path,
     
     print(f"Unified pipeline: {unified_time:.2f}s (speedup: {results['unified']['speedup']:.2f}x)")
     
+    # Test 4: GPU-optimized pipeline
+    print("\n" + "="*60)
+    print(f"BENCHMARKING GPU-OPTIMIZED DETECTION PIPELINE (batch={batch_size})")
+    print("="*60)
+    
+    pipeline = GPUOptimizedPLCDetectionPipeline(
+        model_path=model_path,
+        confidence_threshold=0.25,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        use_amp=True
+    )
+    
+    start_time = time.time()
+    pipeline.process_pdf_folder(
+        diagrams_folder=diagrams_folder,
+        output_folder=output_folder,
+        snippet_size=snippet_size,
+        overlap=overlap,
+        skip_pdf_conversion=True
+    )
+    gpu_time = time.time() - start_time
+    
+    results['gpu_optimized'] = {
+        'time': gpu_time,
+        'images': image_count,
+        'speed': image_count / gpu_time if gpu_time > 0 else 0,
+        'speedup': seq_time / gpu_time if gpu_time > 0 else 0
+    }
+    
+    print(f"GPU-optimized detection: {gpu_time:.2f}s (speedup: {results['gpu_optimized']['speedup']:.2f}x)")
+    
     return results
 
 
@@ -314,6 +347,42 @@ def benchmark_end_to_end(diagrams_folder, output_folder, model_path,
     }
     
     print(f"Streaming end-to-end: {streaming_time:.2f}s (speedup: {results['streaming']['speedup']:.2f}x)")
+    
+    # Clear for next test
+    shutil.rmtree(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+    
+    # Test 4: GPU-optimized end-to-end pipeline
+    print("\n" + "="*60)
+    print("BENCHMARKING GPU-OPTIMIZED END-TO-END PIPELINE")
+    print("="*60)
+    
+    pipeline = GPUOptimizedPLCDetectionPipeline(
+        model_path=model_path,
+        confidence_threshold=0.25,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        use_amp=True
+    )
+    
+    start_time = time.time()
+    pipeline.process_pdf_folder(
+        diagrams_folder=diagrams_folder,
+        output_folder=output_folder,
+        snippet_size=snippet_size,
+        overlap=overlap,
+        skip_pdf_conversion=False
+    )
+    gpu_time = time.time() - start_time
+    
+    results['gpu_optimized'] = {
+        'time': gpu_time,
+        'pdfs': pdf_count,
+        'speed': pdf_count / gpu_time if gpu_time > 0 else 0,
+        'speedup': seq_time / gpu_time if gpu_time > 0 else 0
+    }
+    
+    print(f"GPU-optimized end-to-end: {gpu_time:.2f}s (speedup: {results['gpu_optimized']['speedup']:.2f}x)")
     
     return results
 

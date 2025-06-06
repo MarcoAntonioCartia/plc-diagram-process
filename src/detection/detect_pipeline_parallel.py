@@ -51,9 +51,20 @@ class ParallelPLCDetectionPipeline:
             self.device = f'cuda:{device_id}'
         print(f"Using device: {self.device}")
         
-        # Move model to GPU if available
+        # Move model to GPU if available and set to eval mode
         if self.device != 'cpu':
             self.model.to(self.device)
+        
+        # Set model to evaluation mode for inference
+        self.model.eval()
+        
+        # Warm up GPU (important for accurate benchmarking)
+        if self.device != 'cpu':
+            print("Warming up GPU...")
+            dummy_input = torch.randn(1, 3, 640, 640).to(self.device)
+            with torch.no_grad():
+                _ = self.model(dummy_input)
+            torch.cuda.synchronize()
         
     def process_pdf_folder(self, diagrams_folder, output_folder=None, snippet_size=(1500, 1200), 
                           overlap=500, skip_pdf_conversion=False, parallel_pdfs=True):
