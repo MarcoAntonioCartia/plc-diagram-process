@@ -11,5 +11,16 @@ def make_grid_diagram(out_path, cols=3, rows=3, width=800, height=600):
     dwg.save()
 
 if __name__ == "__main__":
-    out = Path("../../data/synthetic/diagram.svg")
+    # Get configuration and build path
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from config import get_config
+    
+    config = get_config()
+    processed_data_path = Path(config.config['paths']['processed_data'])
+    out = processed_data_path / "synthetic" / "diagram.svg"
+    
+    # Ensure the synthetic directory exists
+    out.parent.mkdir(parents=True, exist_ok=True)
     make_grid_diagram(out)  # convert with rsvg-convert or cairosvg to PNG

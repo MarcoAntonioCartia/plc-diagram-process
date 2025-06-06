@@ -1,0 +1,90 @@
+# PLC Diagram Processor Download Configuration
+# Edit this file to customize your setup
+
+# Storage backend selection
+storage_backend: "network_drive"  # Options: "network_drive", "onedrive" (legacy)
+
+# Network Drive Dataset Configuration (PRIMARY)
+network_drive:
+  # Base path to network storage
+  base_path: "\\\\spservfile01\\Spiegltec\\99_Automatisierung\\Datasets plc-diagram-processor"
+  
+  # Dataset selection
+  dataset:
+    architecture: "YOLO"                    # Model architecture family
+    version: "v11"                          # YOLO version (v8, v9, v10, v11)
+    dataset_pattern: "plc_symbols_v11_*.zip"  # Pattern to match datasets (YYYYMMDDVV format)
+    auto_select_latest: true                # Auto-select most recent by date
+    keep_old_versions: true                 # Keep previous dataset versions
+
+# OneDrive Dataset Configuration (###LEGACY### - kept for future cloud storage)
+# This configuration is preserved but not actively used
+onedrive:
+  # Base SharePoint URL for datasets
+  base_url: "https://spieglteccloud-my.sharepoint.com/:f:/g/personal/marco_mendez_spiegltec_at/EvGBHaMWuw5Bjk6EIyi3e0MBJ2-TkqLnmP5icHtUccyeBQ?e=4N47FI"
+  
+  # Dataset selection
+  dataset:
+    architecture: "YOLO"                    # Model architecture family
+    version: "v11"                          # YOLO version (v8, v9, v10, v11)
+    dataset_pattern: "plc_symbols_v11_*.zip"  # Pattern to match datasets (YYYYMMDDVV format)
+    auto_select_latest: true                # Auto-select most recent by date
+    keep_old_versions: true                 # Keep previous dataset versions
+
+# YOLO Model Configuration
+models:
+  # Default model for setup (user will be prompted to confirm/change)
+  default_model: "yolo11m.pt"
+  
+  # Available models for selection
+  available_models:
+    yolo11:
+      - "yolo11n.pt"    # Nano - fastest inference
+      - "yolo11s.pt"    # Small - good balance
+      - "yolo11m.pt"    # Medium - recommended default
+      - "yolo11l.pt"    # Large - higher accuracy
+      - "yolo11x.pt"    # Extra Large - best accuracy
+    yolo10:
+      - "yolo10n.pt"
+      - "yolo10s.pt" 
+      - "yolo10m.pt"
+      - "yolo10l.pt"
+      - "yolo10x.pt"
+    # Add more versions as needed
+  
+  # Download behavior
+  download_multiple: true                   # Allow downloading multiple models
+  verify_downloads: true                    # Verify model integrity
+
+# Dataset Management
+dataset_management:
+  # How to handle active dataset
+  activation_method: "symlink_with_fallback"  # Options: "symlink", "copy", "symlink_with_fallback"
+  # Update plc_symbols.yaml automatically
+  auto_update_config: true
+  # Preserve existing dataset structure
+  maintain_yolo_structure: true
+
+# Integration with existing pipeline
+pipeline_integration:
+  # Paths relative to plc-data/
+  dataset_config_path: "datasets/plc_symbols.yaml"
+  active_dataset_path: "datasets"
+  pretrained_models_path: "models/pretrained"
+  custom_models_path: "models/custom"
+  runs_path: "runs"
+
+# Setup Behavior
+setup:
+  # Whether to automatically download during setup.py
+  auto_download_dataset: false              # Set true for automatic download
+  auto_download_models: false               # Set true for automatic download
+  
+  # User interaction
+  prompt_for_downloads: true                # Ask user during setup
+  show_empty_folder_warnings: true         # Warn if folders remain empty
+  
+  # Directory management
+  create_sample_structure: true             # Create example directory structure
+  create_readme_files: true                # Add README files explaining folder purposes
+  preserve_existing_structure: true        # Don't modify existing plc-data structure

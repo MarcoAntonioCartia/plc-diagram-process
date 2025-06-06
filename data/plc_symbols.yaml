@@ -1,11 +1,10 @@
-path: ../data/annotated
-train: images/train
-val: images/val
+# Dataset configuration for YOLO11 PLC symbol detection
+path: data/dataset
+train: train/images
+val: valid/images
+test: test/images
 
-# define classes for PLC symbols
+# Define classes for PLC symbols (using Roboflow dataset structure)
 names:
-  0: input_sensor
-  1: output_valve
-  2: relay
-  3: contactor
-nc: 4
+  0: PLC
+nc: 1
