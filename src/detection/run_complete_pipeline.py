@@ -192,16 +192,42 @@ class CompletePipelineRunner:
         
         return trained_model_path
     
-    def _run_detection_pipeline(self, model_path):
+    def _run_detection_pipeline(self, model_path, use_parallel=False, batch_size=32, num_workers=4, 
+                               skip_pdf_conversion=False, use_unified=False, streaming_mode=False):
         """Run the complete detection pipeline using the trained model"""
         
         print(f"Running detection pipeline with model: {model_path}")
         
-        # Initialize pipeline with trained model
-        pipeline = PLCDetectionPipeline(
-            model_path=str(model_path),
-            confidence_threshold=self.confidence_threshold
-        )
+        if use_unified:
+            print("Using unified parallel pipeline with optimized resource usage...")
+            from src.detection.unified_parallel_pipeline import UnifiedParallelPipeline
+            
+            # Initialize unified pipeline
+            pipeline = UnifiedParallelPipeline(
+                model_path=str(model_path),
+                confidence_threshold=self.confidence_threshold,
+                batch_size=batch_size,
+                pdf_workers=num_workers,
+                detection_workers=2,
+                streaming_mode=streaming_mode
+            )
+        elif use_parallel:
+            print("Using parallel processing with GPU batching...")
+            from src.detection.detect_pipeline_parallel import ParallelPLCDetectionPipeline
+            
+            # Initialize parallel pipeline
+            pipeline = ParallelPLCDetectionPipeline(
+                model_path=str(model_path),
+                confidence_threshold=self.confidence_threshold,
+                batch_size=batch_size,
+                num_workers=num_workers
+            )
+        else:
+            # Initialize standard pipeline
+            pipeline = PLCDetectionPipeline(
+                model_path=str(model_path),
+                confidence_threshold=self.confidence_threshold
+            )
         
         # Run pipeline
         detection_start = time.time()
@@ -210,7 +236,8 @@ class CompletePipelineRunner:
             diagrams_folder=self.diagrams_folder,
             output_folder=self.detdiagrams_folder.parent,  # Use processed folder
             snippet_size=self.snippet_size,
-            overlap=self.overlap
+            overlap=self.overlap,
+            skip_pdf_conversion=skip_pdf_conversion
         )
         
         detection_time = time.time() - detection_start
@@ -339,6 +366,18 @@ def main():
                        help='Overlap between snippets (default: 500)')
     parser.add_argument('--skip-training', action='store_true',
                        help='Skip training and use existing best model')
+    parser.add_argument('--parallel', action='store_true',
+                       help='Use parallel processing with GPU batching for faster detection')
+    parser.add_argument('--batch-size', '-b', type=int, default=32,
+                       help='Batch size for GPU inference (default: 32)')
+    parser.add_argument('--workers', '-w', type=int, default=4,
+                       help='Number of parallel workers (default: 4)')
+    parser.add_argument('--skip-pdf-conversion', action='store_true',
+                       help='Skip PDF to image conversion (use existing images)')
+    parser.add_argument('--unified', action='store_true',
+                       help='Use unified parallel pipeline (best performance)')
+    parser.add_argument('--streaming', action='store_true',
+                       help='Enable streaming mode for lower memory usage')
     
     args = parser.parse_args()
     
@@ -363,7 +402,15 @@ def main():
                     if best_model.exists():
                         print(f"Using existing model: {best_model}")
                         runner.results["training"] = {"model_path": str(best_model), "epochs": "skipped"}
-                        runner._run_detection_pipeline(best_model)
+                        runner._run_detection_pipeline(
+                            best_model, 
+                            use_parallel=args.parallel,
+                            batch_size=args.batch_size,
+                            num_workers=args.workers,
+                            skip_pdf_conversion=args.skip_pdf_conversion,
+                            use_unified=args.unified,
+                            streaming_mode=args.streaming
+                        )
                         runner._generate_summary_report()
                         return 0
             
