@@ -89,15 +89,15 @@ class PLCSetup:
             
             if result.stdout:
                 print(f"  Output: {result.stdout.strip()}")
-            print(f"  ✓ Success: {description}")
+            print(f"   Success: {description}")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"  ✗ ERROR: {e}")
+            print(f"   ERROR: {e}")
             if e.stderr:
                 print(f"  Error details: {e.stderr.strip()}")
             return False
         except Exception as e:
-            print(f"  ✗ ERROR: {e}")
+            print(f"   ERROR: {e}")
             return False
 
     def install_system_dependencies(self) -> bool:
@@ -188,51 +188,464 @@ class PLCSetup:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
     
+    def _check_wsl_gpu_support(self) -> Dict[str, any]:
+        """Check if GPU is available in WSL for training."""
+        print("\n=== Checking WSL GPU Support ===")
+        
+        gpu_info = {
+            'available': False,
+            'cuda_available': False,
+            'nvidia_smi': False,
+            'driver_version': None,
+            'cuda_version': None,
+            'gpu_name': None,
+            'issues': []
+        }
+        
+        # Check if WSL is available first
+        if not self._check_wsl_available():
+            gpu_info['issues'].append("WSL is not available")
+            return gpu_info
+        
+        # Check for nvidia-smi in WSL
+        print("Checking for NVIDIA GPU in WSL...")
+        try:
+            result = subprocess.run(
+                ['wsl', '-e', 'bash', '-c', 'nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null'],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                gpu_info['nvidia_smi'] = True
+                # Parse output
+                output_lines = result.stdout.strip().split('\n')
+                if output_lines:
+                    parts = output_lines[0].split(', ')
+                    if len(parts) >= 2:
+                        gpu_info['gpu_name'] = parts[0].strip()
+                        gpu_info['driver_version'] = parts[1].strip()
+                        gpu_info['available'] = True
+                        print(f"✓ Found GPU: {gpu_info['gpu_name']}")
+                        print(f"  Driver version: {gpu_info['driver_version']}")
+            else:
+                gpu_info['issues'].append("nvidia-smi not found in WSL")
+                print("✗ NVIDIA GPU not detected in WSL")
+        except subprocess.TimeoutExpired:
+            gpu_info['issues'].append("nvidia-smi command timed out")
+            print("✗ GPU check timed out")
+        except Exception as e:
+            gpu_info['issues'].append(f"Error checking GPU: {str(e)}")
+            print(f"✗ Error checking GPU: {e}")
+        
+        # Check for CUDA in WSL
+        if gpu_info['nvidia_smi']:
+            print("\nChecking CUDA availability in WSL...")
+            try:
+                result = subprocess.run(
+                    ['wsl', '-e', 'bash', '-c', 'nvcc --version 2>/dev/null | grep "release" | awk \'{print $6}\' | cut -c2-'],
+                    capture_output=True, text=True, timeout=5
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    gpu_info['cuda_version'] = result.stdout.strip()
+                    gpu_info['cuda_available'] = True
+                    print(f"✓ CUDA version: {gpu_info['cuda_version']}")
+                else:
+                    # Try alternative method
+                    result = subprocess.run(
+                        ['wsl', '-e', 'bash', '-c', 'nvidia-smi | grep -oP "CUDA Version: \K[0-9.]+"'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        gpu_info['cuda_version'] = result.stdout.strip()
+                        gpu_info['cuda_available'] = True
+                        print(f"✓ CUDA version (from nvidia-smi): {gpu_info['cuda_version']}")
+                    else:
+                        gpu_info['issues'].append("CUDA not found in WSL")
+                        print("⚠ CUDA not detected in WSL (training will use CPU)")
+            except Exception as e:
+                gpu_info['issues'].append(f"Error checking CUDA: {str(e)}")
+                print(f"⚠ Could not check CUDA: {e}")
+        
+        # Provide recommendations based on findings
+        print("\n" + "="*60)
+        if gpu_info['available'] and gpu_info['cuda_available']:
+            print("✓ GPU READY: Your WSL environment is configured for GPU training!")
+            print(f"  GPU: {gpu_info['gpu_name']}")
+            print(f"  Driver: {gpu_info['driver_version']}")
+            print(f"  CUDA: {gpu_info['cuda_version']}")
+        elif gpu_info['available'] and not gpu_info['cuda_available']:
+            print("⚠ GPU PARTIAL: GPU detected but CUDA not found")
+            print("\nTo enable GPU training:")
+            print("1. Install CUDA toolkit in WSL:")
+            print("   wsl")
+            print("   sudo apt-get update")
+            print("   sudo apt-get install -y cuda-toolkit-11-8")
+            print("2. Restart WSL and run setup again")
+        else:
+            print("✗ GPU NOT AVAILABLE: Training will use CPU (slower)")
+            print("\nTo enable GPU support:")
+            print("1. Ensure you have an NVIDIA GPU")
+            print("2. Install NVIDIA GPU drivers for WSL:")
+            print("   https://developer.nvidia.com/cuda/wsl")
+            print("3. Restart your computer")
+            print("4. Run this setup again")
+        print("="*60)
+        
+        return gpu_info
+    
+    def _handle_wsl_configuration_error(self) -> bool:
+        """Handle WSL configuration errors like the nvidia GPU key issue."""
+        print("\n=== Checking WSL Configuration ===")
+        
+        wslconfig_path = Path.home() / '.wslconfig'
+        
+        if wslconfig_path.exists():
+            print(f"Found .wslconfig at: {wslconfig_path}")
+            
+            # Check for common configuration issues
+            try:
+                with open(wslconfig_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                issues_found = []
+                
+                # Check for the specific nvidia GPU error
+                if 'wsl2.nvidiaGPU' in content:
+                    issues_found.append({
+                        'issue': 'Invalid key: wsl2.nvidiaGPU',
+                        'fix': 'Remove or comment out the wsl2.nvidiaGPU line',
+                        'severity': 'warning'
+                    })
+                
+                if issues_found:
+                    print("\n⚠ WSL Configuration Issues Found:")
+                    for issue in issues_found:
+                        print(f"  - {issue['issue']}")
+                        print(f"    Fix: {issue['fix']}")
+                    
+                    if not self.dry_run:
+                        response = input("\nWould you like to view your .wslconfig file? (y/n): ")
+                        if response.lower() == 'y':
+                            print("\n" + "="*60)
+                            print("Current .wslconfig content:")
+                            print("="*60)
+                            print(content)
+                            print("="*60)
+                            print("\nNote: GPU support in WSL2 works automatically with proper drivers.")
+                            print("You typically don't need GPU-specific configuration in .wslconfig")
+                    
+                    return True
+                else:
+                    print("✓ No configuration issues found")
+                    return True
+                    
+            except Exception as e:
+                print(f"⚠ Could not check .wslconfig: {e}")
+                return True
+        else:
+            print("✓ No .wslconfig file found (using WSL defaults)")
+            return True
+    
     def _install_poppler_via_wsl(self) -> bool:
-        """Install poppler using WSL on Windows."""
+        """Install poppler using WSL on Windows with improved error handling."""
         print("\n=== Installing Poppler via WSL ===")
         
-        # Update package list in WSL
+        # First, handle any WSL configuration issues
+        self._handle_wsl_configuration_error()
+        
+        # Check GPU support (informational, don't block installation)
+        gpu_info = self._check_wsl_gpu_support()
+        
+        # Store GPU info for later reference
+        self.wsl_gpu_info = gpu_info
+        
+        # Continue with poppler installation
+        print("\n=== Continuing with Poppler Installation ===")
+        
+        # Check if poppler is already installed in WSL
+        print("Checking if poppler is already installed in WSL...")
+        check_cmd = ['wsl', '-e', 'bash', '-c', 'which pdftotext 2>/dev/null']
+        
+        try:
+            result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                print("✓ Poppler is already installed in WSL!")
+                print(f"  Found at: {result.stdout.strip()}")
+                return self._create_wsl_wrappers()
+        except subprocess.TimeoutExpired:
+            print("⚠ WSL check timed out - WSL might be starting up")
+            print("  Waiting for WSL to initialize...")
+            time.sleep(3)
+            # Try once more
+            try:
+                result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0 and result.stdout.strip():
+                    print("✓ Poppler is already installed in WSL!")
+                    return self._create_wsl_wrappers()
+            except:
+                pass
+        except Exception as e:
+            print(f"⚠ Could not check for existing poppler: {e}")
+        
+        # Check if we can run commands without sudo
+        print("\nChecking WSL sudo requirements...")
+        test_sudo_cmd = ['wsl', '-e', 'bash', '-c', 'sudo -n true 2>/dev/null']
+        try:
+            result = subprocess.run(test_sudo_cmd, capture_output=True, text=True, timeout=5)
+            passwordless_sudo = (result.returncode == 0)
+        except:
+            passwordless_sudo = False
+        
+        if passwordless_sudo:
+            print("✓ Passwordless sudo detected, proceeding with automatic installation...")
+            return self._run_wsl_poppler_install()
+        
+        # Need to handle password authentication
+        print("\n" + "="*60)
+        print("WSL Poppler Installation Options")
+        print("="*60)
+        print("\n⚠ WSL requires sudo password for package installation.\n")
+        print("1. Enter WSL password for automatic installation")
+        print("2. Open WSL terminal for manual installation (recommended)")
+        print("3. Configure passwordless sudo (development only)")
+        print("4. Skip and use Windows-native poppler")
+        print("\n" + "="*60)
+        
+        while True:
+            choice = input("\nSelect option (1-4): ").strip()
+            
+            if choice == "1":
+                # Try installation with password prompt
+                print("\nAttempting installation with password...")
+                if self._install_with_password_prompt():
+                    return True
+                else:
+                    print("\n⚠ Automatic installation failed.")
+                    print("Would you like to try another option? (y/n): ", end='')
+                    if input().lower() != 'y':
+                        return False
+                    continue
+                    
+            elif choice == "2":
+                # Manual installation with better instructions
+                return self._guide_manual_wsl_installation()
+                
+            elif choice == "3":
+                # Passwordless sudo configuration
+                return self._guide_passwordless_sudo_setup()
+                
+            elif choice == "4":
+                # Skip WSL installation
+                print("\nSkipping WSL poppler installation...")
+                print("You'll need to install poppler manually for Windows.")
+                return False
+            else:
+                print("Invalid choice. Please select 1-4.")
+    
+    def _install_with_password_prompt(self) -> bool:
+        """Install poppler with interactive password prompt."""
+        try:
+            # Create a temporary bash script that will handle the installation
+            install_script = '''#!/bin/bash
+echo "Updating package lists..."
+sudo apt-get update
+if [ $? -eq 0 ]; then
+    echo "Installing poppler-utils..."
+    sudo apt-get install -y poppler-utils
+    if [ $? -eq 0 ]; then
+        echo "SUCCESS"
+    else
+        echo "FAILED_INSTALL"
+    fi
+else
+    echo "FAILED_UPDATE"
+fi
+'''
+            
+            # Write script to temporary file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+                f.write(install_script)
+                script_path = f.name
+            
+            # Convert Windows path to WSL path
+            wsl_script_path = subprocess.run(
+                ['wsl', '-e', 'wslpath', '-u', script_path],
+                capture_output=True, text=True
+            ).stdout.strip()
+            
+            # Make script executable and run it
+            print("\nPlease enter your WSL password when prompted:")
+            print("(Password will not be displayed while typing)")
+            print()
+            
+            # Run the script interactively so user can enter password
+            result = subprocess.run(
+                ['wsl', '-e', 'bash', wsl_script_path],
+                text=True
+            )
+            
+            # Clean up
+            os.unlink(script_path)
+            
+            # Check if installation was successful
+            if result.returncode == 0:
+                check_cmd = ['wsl', '-e', 'bash', '-c', 'which pdftotext']
+                check_result = subprocess.run(check_cmd, capture_output=True, text=True)
+                if check_result.returncode == 0:
+                    print("\n✓ Poppler installed successfully!")
+                    return self._create_wsl_wrappers()
+            
+            print("\n✗ Poppler installation failed")
+            return False
+            
+        except Exception as e:
+            print(f"\nError during installation: {e}")
+            return False
+    
+    def _run_wsl_poppler_install(self) -> bool:
+        """Run the actual WSL poppler installation (for passwordless sudo)."""
+        # Update package list
         print("Updating WSL package list...")
         update_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apt-get update']
         if not self.run_command(update_cmd, "Updating WSL packages", shell=False):
             return False
         
-        # Install poppler-utils in WSL
+        # Install poppler-utils
         print("Installing poppler-utils in WSL...")
         install_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apt-get install -y poppler-utils']
         if not self.run_command(install_cmd, "Installing poppler-utils", shell=False):
             return False
         
-        # Create a Windows-accessible poppler wrapper
-        print("Creating Windows-accessible poppler wrapper...")
+        return self._create_wsl_wrappers()
+    
+    def _guide_manual_wsl_installation(self) -> bool:
+        """Guide user through manual WSL installation with verification."""
+        print("\n" + "="*70)
+        print("Manual WSL Poppler Installation Guide")
+        print("="*70)
+        
+        print("\nStep 1: Open a NEW terminal window (not this one)")
+        print("Step 2: Enter WSL by typing: wsl")
+        print("Step 3: Run these commands:")
+        print("\n  sudo apt-get update")
+        print("  sudo apt-get install -y poppler-utils")
+        print("\nStep 4: Verify installation:")
+        print("  which pdftotext")
+        print("  (Should show: /usr/bin/pdftotext)")
+        print("\nStep 5: Exit WSL:")
+        print("  exit")
+        print("\n" + "="*70)
+        
+        print("\n⚠ IMPORTANT: Complete these steps in a SEPARATE terminal window!")
+        input("\nPress Enter when you've completed the installation...")
+        
+        # Verify installation with multiple attempts
+        print("\nVerifying poppler installation...")
+        
+        for attempt in range(3):
+            check_cmd = ['wsl', '-e', 'bash', '-c', 'which pdftotext 2>/dev/null']
+            try:
+                result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout.strip():
+                    print(f"✓ Poppler successfully installed at: {result.stdout.strip()}")
+                    return self._create_wsl_wrappers()
+            except:
+                pass
+            
+            if attempt < 2:
+                print(f"  Attempt {attempt + 1} failed, retrying...")
+                time.sleep(2)
+        
+        print("\n✗ Could not verify poppler installation")
+        print("\nTroubleshooting:")
+        print("1. Make sure you completed all steps in WSL")
+        print("2. Try running 'wsl --shutdown' and then retry")
+        print("3. Check if WSL is properly installed")
+        
+        retry = input("\nWould you like to try verification again? (y/n): ")
+        if retry.lower() == 'y':
+            return self._guide_manual_wsl_installation()
+        
+        return False
+    
+    def _guide_passwordless_sudo_setup(self) -> bool:
+        """Guide user through passwordless sudo setup."""
+        print("\n" + "="*70)
+        print("Passwordless Sudo Configuration (Development Environment Only)")
+        print("="*70)
+        print("\n⚠ WARNING: This reduces security. Only use in development!")
+        print("\nSteps:")
+        print("1. Open WSL: wsl")
+        print("2. Edit sudoers file: sudo visudo")
+        print("3. Add this line at the end:")
+        print("   %sudo ALL=(ALL) NOPASSWD: ALL")
+        print("4. Save and exit:")
+        print("   - If using nano: Ctrl+X, then Y, then Enter")
+        print("   - If using vi: Esc, then :wq")
+        print("5. Exit WSL: exit")
+        print("6. Restart this setup script")
+        print("\n" + "="*70)
+        
+        return False
+    
+    def _create_wsl_wrappers(self) -> bool:
+        """Create Windows-accessible poppler wrappers with error handling."""
+        print("\nCreating Windows-accessible poppler wrappers...")
         wrapper_dir = self.project_root / 'bin' / 'poppler'
         
         if not self.dry_run:
-            wrapper_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Create wrapper scripts for poppler tools
-            poppler_tools = ['pdftotext', 'pdftoppm', 'pdfinfo', 'pdfimages']
-            
-            for tool in poppler_tools:
-                wrapper_path = wrapper_dir / f'{tool}.bat'
-                wrapper_content = f'''@echo off
+            try:
+                wrapper_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create wrapper scripts for poppler tools
+                poppler_tools = ['pdftotext', 'pdftoppm', 'pdfinfo', 'pdfimages']
+                created_wrappers = []
+                
+                for tool in poppler_tools:
+                    wrapper_path = wrapper_dir / f'{tool}.bat'
+                    wrapper_content = f'''@echo off
 wsl -e {tool} %*
 '''
-                with open(wrapper_path, 'w') as f:
-                    f.write(wrapper_content)
-                print(f"  Created wrapper: {wrapper_path}")
-            
-            # Add to PATH for current session
-            current_path = os.environ.get('PATH', '')
-            if str(wrapper_dir) not in current_path:
-                os.environ['PATH'] = f"{wrapper_dir};{current_path}"
-                print(f"  Added {wrapper_dir} to PATH for current session")
-            
-            print("\nPoppler installed successfully via WSL!")
-            print("  Note: The poppler tools are now accessible through WSL wrappers.")
-            print(f"  Wrapper location: {wrapper_dir}")
-            print("  You may want to add this directory to your system PATH permanently.")
+                    try:
+                        with open(wrapper_path, 'w') as f:
+                            f.write(wrapper_content)
+                        created_wrappers.append(wrapper_path)
+                        print(f"  ✓ Created wrapper: {wrapper_path.name}")
+                    except Exception as e:
+                        print(f"  ✗ Failed to create {wrapper_path.name}: {e}")
+                
+                if not created_wrappers:
+                    print("\n✗ Failed to create any wrappers")
+                    return False
+                
+                # Add to PATH for current session
+                current_path = os.environ.get('PATH', '')
+                if str(wrapper_dir) not in current_path:
+                    os.environ['PATH'] = f"{wrapper_dir};{current_path}"
+                    print(f"\n✓ Added {wrapper_dir} to PATH for current session")
+                
+                print("\n" + "="*60)
+                print("✓ Poppler Installation Complete!")
+                print("="*60)
+                print(f"  Wrappers created: {len(created_wrappers)}/{len(poppler_tools)}")
+                print(f"  Location: {wrapper_dir}")
+                print("\n  To make permanent, add this to your system PATH:")
+                print(f"  {wrapper_dir}")
+                print("="*60)
+                
+                # Show GPU status summary
+                if hasattr(self, 'wsl_gpu_info') and self.wsl_gpu_info['available']:
+                    print(f"\n✓ GPU Status: {self.wsl_gpu_info['gpu_name']} ready for training!")
+                else:
+                    print("\n⚠ GPU Status: Not available - training will use CPU")
+                
+                return True
+                
+            except Exception as e:
+                print(f"\n✗ Error creating wrappers: {e}")
+                return False
         
         return True
     
@@ -357,9 +770,9 @@ wsl -e {tool} %*
                                 raise e
                             print(f"  Attempt {attempt + 1} failed, retrying...")
                             time.sleep(1)
-                    print("  ✓ Old environment removed successfully")
+                    print("   Old environment removed successfully")
                 except Exception as e:
-                    print(f"  ✗ ERROR: Could not remove existing environment: {e}")
+                    print(f"   ERROR: Could not remove existing environment: {e}")
                     print("  Please manually delete the directory and try again.")
                     return False
         
@@ -378,7 +791,7 @@ wsl -e {tool} %*
                 print(f"ERROR: Virtual environment pip not found at {self.venv_pip}")
                 return False
             
-            print("✓ Virtual environment created successfully")
+            print(" Virtual environment created successfully")
             print(f"  Python: {self.venv_python}")
             print(f"  Pip: {self.venv_pip}")
         
@@ -405,13 +818,18 @@ wsl -e {tool} %*
         for i, (tool, description) in enumerate(tools, 1):
             print(f"[{i}/{len(tools)}] Upgrading {tool} ({description})...")
             
-            success = self.run_command([str(self.venv_pip), 'install', '--upgrade', tool], 
-                                     f"Upgrading {tool} in virtual environment")
+            # Special handling for pip upgrade - must use python -m pip
+            if tool == 'pip':
+                success = self.run_command([str(self.venv_python), '-m', 'pip', 'install', '--upgrade', 'pip'], 
+                                         f"Upgrading {tool} in virtual environment")
+            else:
+                success = self.run_command([str(self.venv_pip), 'install', '--upgrade', tool], 
+                                         f"Upgrading {tool} in virtual environment")
             
             if success:
-                print(f"  ✓ Successfully upgraded {tool}")
+                print(f"   Successfully upgraded {tool}")
             else:
-                print(f"  ✗ Failed to upgrade {tool}")
+                print(f"   Failed to upgrade {tool}")
                 return False
             print()
         
@@ -422,7 +840,7 @@ wsl -e {tool} %*
                 result = subprocess.run([str(self.venv_pip), '--version'], 
                                       capture_output=True, text=True, timeout=30)
                 if result.returncode == 0:
-                    print(f"✓ Final pip version: {result.stdout.strip()}")
+                    print(f" Final pip version: {result.stdout.strip()}")
                 else:
                     print("⚠ Warning: Could not verify pip version")
             except subprocess.TimeoutExpired:
@@ -430,7 +848,7 @@ wsl -e {tool} %*
             except Exception as e:
                 print(f"⚠ Warning: Error checking pip version: {e}")
         
-        print("✓ All virtual environment tools upgraded successfully")
+        print(" All virtual environment tools upgraded successfully")
         return True
 
     def parse_requirements(self, requirements_file: Path) -> List[str]:
@@ -666,9 +1084,9 @@ wsl -e {tool} %*
                     package_name, success, error_msg = self.install_single_package(package)
                     
                     if success:
-                        print(f"✓ Successfully installed: {package}")
+                        print(f" Successfully installed: {package}")
                     else:
-                        print(f"✗ Failed to install: {package}")
+                        print(f" Failed to install: {package}")
                         print(f"  Error: {error_msg}")
                         failed_packages.append(package)
                     print()
@@ -687,9 +1105,9 @@ wsl -e {tool} %*
                     package_name, success, error_msg = self.install_single_package(package)
                     
                     if success:
-                        print(f"✓ Successfully installed: {package}")
+                        print(f" Successfully installed: {package}")
                     else:
-                        print(f"✗ Failed to install: {package}")
+                        print(f" Failed to install: {package}")
                         print(f"  Error: {error_msg}")
                         failed_packages.append(package)
                     print()
@@ -718,7 +1136,7 @@ wsl -e {tool} %*
                         if success:
                             self.update_progress_display(package_name, completed=True)
                         else:
-                            print(f"\n✗ Failed: {package_name} - {error_msg}")
+                            print(f"\n Failed: {package_name} - {error_msg}")
                             failed_packages.append(package_name)
                             self.update_progress_display(package_name, completed=True)
                 
@@ -754,17 +1172,17 @@ wsl -e {tool} %*
                     temp_req_file.unlink()
                     
                     if bulk_result.returncode == 0:
-                        print("✓ Bulk installation completed successfully")
+                        print(" Bulk installation completed successfully")
                         failed_packages = []  # Clear failed packages list
                     else:
-                        print("✗ Bulk installation failed. Some packages may need manual installation.")
+                        print(" Bulk installation failed. Some packages may need manual installation.")
                         
                 except subprocess.TimeoutExpired:
                     print("⚠ Bulk installation timed out after 2 hours. Some packages may need manual installation.")
                 except Exception as e:
                     print(f"Error in bulk installation attempt: {e}")
             else:
-                print("✓ All Python dependencies installed successfully!")
+                print(" All Python dependencies installed successfully!")
             
         except KeyboardInterrupt:
             print("\n\nInstallation interrupted by user.")
@@ -782,19 +1200,19 @@ wsl -e {tool} %*
                 result = subprocess.run([str(self.venv_python), '-c', f'import {package}; print(f"{package} imported successfully")'], 
                                       capture_output=True, text=True, timeout=60)
                 if result.returncode == 0:
-                    print(f"  ✓ SUCCESS: {package}")
+                    print(f"   SUCCESS: {package}")
                 else:
-                    print(f"  ✗ FAILED: {package} - could not import")
+                    print(f"   FAILED: {package} - could not import")
             except subprocess.TimeoutExpired:
                 print(f"  ⚠ TIMEOUT: {package} - import test timed out")
             except Exception as e:
-                print(f"  ✗ ERROR: {package} - {e}")
+                print(f"   ERROR: {package} - {e}")
         
         # Return success if no packages failed or less than 25% failed
         success_rate = (len(all_packages) - len(failed_packages)) / len(all_packages)
         
         if success_rate >= 0.75:
-            print(f"\n✓ Installation completed successfully! ({success_rate*100:.1f}% success rate)")
+            print(f"\n Installation completed successfully! ({success_rate*100:.1f}% success rate)")
             return True
         else:
             print(f"\n⚠ Installation completed with issues. ({success_rate*100:.1f}% success rate)")
@@ -1100,46 +1518,43 @@ wsl -e {tool} %*
             return False
     
     def download_models_interactive(self, config: Dict) -> bool:
-        """Interactive model download"""
+        """Interactive model download using virtual environment Python"""
+        print("\n=== Model Download ===")
+        
+        # Check if manage_models.py exists
+        manage_models_script = self.project_root / 'setup' / 'manage_models.py'
+        if not manage_models_script.exists():
+            print(f"Error: Model management script not found at {manage_models_script}")
+            return False
+        
+        # Run the model manager script with the virtual environment's Python
+        # This ensures ultralytics and other dependencies are available
+        print("Running model manager with virtual environment...")
+        
         try:
-            # Import managers here to avoid import issues during setup
-            sys.path.append(str(self.project_root / 'src'))
-            from utils.model_manager import ModelManager
+            # Prepare the command to run manage_models.py with interactive mode
+            cmd = [str(self.venv_python), str(manage_models_script), '--interactive']
             
-            print("\n=== Model Download ===")
-            
-            model_manager = ModelManager(config)
-            
-            # Interactive model selection
-            selected_models = model_manager.interactive_model_selection()
-            
-            if not selected_models:
-                print("No models selected")
+            if self.dry_run:
+                print(f"DRY RUN: Would execute: {' '.join(cmd)}")
                 return True
             
-            # Download selected models
-            results = model_manager.download_multiple_models(selected_models)
+            # Run the model manager interactively
+            # Don't capture output so user can interact with the prompts
+            result = subprocess.run(cmd, cwd=str(self.project_root))
             
-            # Check results
-            successful = sum(1 for success in results.values() if success)
-            total = len(results)
-            
-            if successful == total:
-                print(f"All {total} models downloaded successfully!")
-                return True
-            elif successful > 0:
-                print(f"{successful}/{total} models downloaded successfully")
+            if result.returncode == 0:
+                print("\nModel download completed successfully!")
                 return True
             else:
-                print("No models were downloaded successfully")
+                print(f"\nModel download failed with exit code: {result.returncode}")
                 return False
                 
-        except ImportError as e:
-            print(f"Error importing model manager: {e}")
-            print("Make sure the virtual environment is activated and dependencies are installed")
+        except subprocess.CalledProcessError as e:
+            print(f"Error running model manager: {e}")
             return False
         except Exception as e:
-            print(f"Error during model download: {e}")
+            print(f"Unexpected error during model download: {e}")
             return False
     
     def automatic_download(self, config: Dict) -> bool:

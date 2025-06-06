@@ -6,10 +6,19 @@ import os
 import sys
 from pathlib import Path
 from ultralytics import YOLO
+import torch
 
 # Add parent directory to path to import config
 sys.path.append(str(Path(__file__).parent.parent))
 from config import get_config
+
+def get_best_device():
+    """Get the best available device, working around Ultralytics' auto detection issues."""
+    if torch.cuda.is_available():
+        # Return '0' for first GPU instead of 'auto' which seems buggy
+        return '0'
+    else:
+        return 'cpu'
 
 def train_yolo11(
     model_name='yolo11m.pt',
@@ -17,7 +26,7 @@ def train_yolo11(
     batch=16,
     patience=20,
     save_period=10,
-    device='auto',
+    device=None,
     workers=8,
     project_name="plc_symbol_detector_yolo11m"
 ):
@@ -26,6 +35,11 @@ def train_yolo11(
     """
     # Get configuration
     config = get_config()
+    
+    # Use smart device detection if device not specified
+    if device is None:
+        device = get_best_device()
+        print(f"Auto-detected device: {device} (CUDA available: {torch.cuda.is_available()})")
     
     # Define paths using config
     model_path = config.get_model_path(model_name, 'pretrained')
@@ -172,12 +186,15 @@ def main():
     
     # Start training
     try:
+        # Handle device argument - if 'auto' is passed, let our function handle it
+        device_arg = None if args.device == 'auto' else args.device
+        
         results = train_yolo11(
             model_name=args.model,
             epochs=args.epochs,
             batch=args.batch,
             patience=args.patience,
-            device=args.device,
+            device=device_arg,
             workers=args.workers,
             project_name=args.name
         )

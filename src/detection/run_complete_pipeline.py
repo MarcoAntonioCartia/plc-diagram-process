@@ -38,12 +38,15 @@ class CompletePipelineRunner:
         # Get configuration
         self.config = get_config()
         
-        # Set up paths using config
-        dataset_path = self.config.get_dataset_path()
-        self.test_folder = dataset_path.parent / "test"  # Assuming test data is alongside dataset
-        self.diagrams_folder = self.test_folder / "diagrams"
-        self.images_folder = self.test_folder / "images"
-        self.detdiagrams_folder = self.test_folder / "detdiagrams"
+        # Set up paths using new structure
+        data_root = Path(self.config.config['data_root'])
+        self.diagrams_folder = data_root / "raw" / "pdfs"
+        self.images_folder = data_root / "processed" / "images"
+        self.detdiagrams_folder = data_root / "processed" / "detdiagrams"
+        
+        # Create output directories if they don't exist
+        self.images_folder.mkdir(parents=True, exist_ok=True)
+        self.detdiagrams_folder.mkdir(parents=True, exist_ok=True)
         
         # Results tracking
         self.results = {
@@ -205,7 +208,7 @@ class CompletePipelineRunner:
         
         result_folder = pipeline.process_pdf_folder(
             diagrams_folder=self.diagrams_folder,
-            output_folder=self.test_folder,
+            output_folder=self.detdiagrams_folder.parent,  # Use processed folder
             snippet_size=self.snippet_size,
             overlap=self.overlap
         )

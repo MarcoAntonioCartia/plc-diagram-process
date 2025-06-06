@@ -144,8 +144,8 @@ class Config:
     
     def get_dataset_path(self, dataset_name: Optional[str] = None) -> Path:
         """Get path to a specific dataset."""
-        dataset_name = dataset_name or self.config['dataset']['name']
-        return Path(self.config['paths']['datasets']) / dataset_name
+        # For new flat structure, just return the datasets directory
+        return Path(self.config['paths']['datasets'])
     
     def get_model_path(self, model_name: str, model_type: str = 'pretrained') -> Path:
         """Get path to a specific model."""
@@ -161,7 +161,22 @@ class Config:
     @property
     def data_yaml_path(self) -> Path:
         """Get path to the data.yaml file for current dataset."""
-        return self.get_dataset_path() / self.config['dataset']['yaml_file']
+        # Check for new structure first (plc_symbols.yaml in datasets root)
+        datasets_path = Path(self.config['paths']['datasets'])
+        new_yaml_path = datasets_path / 'plc_symbols.yaml'
+        
+        if new_yaml_path.exists():
+            return new_yaml_path
+        
+        # Fallback to old structure
+        dataset_name = self.config['dataset']['name']
+        old_yaml_path = datasets_path / dataset_name / self.config['dataset']['yaml_file']
+        
+        if old_yaml_path.exists():
+            return old_yaml_path
+        
+        # Default to new structure path
+        return new_yaml_path
 
 # Singleton instance
 _config_instance = None
