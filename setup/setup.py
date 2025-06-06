@@ -844,8 +844,11 @@ class PLCSetup:
     
     def interactive_download_prompt(self, config: Dict) -> bool:
         """Interactive prompts for downloading data and models"""
+        storage_backend = config.get('storage_backend', 'network_drive')
+        backend_name = "Network Drive" if storage_backend == 'network_drive' else "OneDrive"
+        
         print("\nData and Model Download Options:")
-        print("1. Download datasets from OneDrive")
+        print(f"1. Download datasets from {backend_name}")
         print("2. Download YOLO models")
         print("3. Both datasets and models")
         print("4. Skip downloads (setup empty folders only)")
@@ -883,22 +886,27 @@ class PLCSetup:
         try:
             # Import managers here to avoid import issues during setup
             sys.path.append(str(self.project_root / 'src'))
-            from utils.onedrive_manager import OneDriveManager
             from utils.dataset_manager import DatasetManager
             
-            print("\n=== Dataset Download ===")
+            # Import appropriate storage backend
+            storage_backend = config.get('storage_backend', 'network_drive')
             
-            # Check if OneDrive URL is configured
-            if not config['onedrive']['base_url']:
-                print("Error: OneDrive URL not configured in config/download_config.yaml")
-                return False
+            if storage_backend == 'network_drive':
+                from utils.network_drive_manager import NetworkDriveManager
+                storage_manager = NetworkDriveManager(config)
+                backend_name = "Network Drive"
+            else:  # Legacy OneDrive support
+                from utils.onedrive_manager import OneDriveManager
+                storage_manager = OneDriveManager(config)
+                backend_name = "OneDrive"
             
-            onedrive_manager = OneDriveManager(config)
+            print(f"\n=== Dataset Download ({backend_name}) ===")
+            
             dataset_manager = DatasetManager(config)
             
             # List available datasets
-            print("Checking available datasets...")
-            available_datasets = onedrive_manager.list_available_datasets()
+            print(f"Checking available datasets on {backend_name}...")
+            available_datasets = storage_manager.list_available_datasets()
             
             if not available_datasets:
                 print("No datasets found")
@@ -919,7 +927,7 @@ class PLCSetup:
                     if 1 <= choice_num <= len(available_datasets):
                         # Download specific dataset
                         selected_dataset = available_datasets[choice_num - 1]
-                        dataset_path = onedrive_manager.download_dataset(selected_dataset['name'], use_latest=False)
+                        dataset_path = storage_manager.download_dataset(selected_dataset['name'], use_latest=False)
                         
                         if dataset_path:
                             # Activate the dataset
@@ -933,7 +941,7 @@ class PLCSetup:
                             
                     elif choice_num == len(available_datasets) + 1:
                         # Download latest
-                        dataset_path = onedrive_manager.download_dataset(use_latest=True)
+                        dataset_path = storage_manager.download_dataset(use_latest=True)
                         
                         if dataset_path:
                             # Activate the dataset

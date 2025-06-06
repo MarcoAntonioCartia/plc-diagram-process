@@ -47,13 +47,26 @@ python setup/manage_models.py --interactive
 ### Download Configuration (`config/download_config.yaml`)
 
 ```yaml
-# OneDrive Dataset Configuration
+# Storage backend selection
+storage_backend: "network_drive"  # Options: "network_drive", "onedrive" (legacy)
+
+# Network Drive Dataset Configuration (PRIMARY)
+network_drive:
+  base_path: "S:\\99_Automation\\Datasets plc-diagram-processor"
+  dataset:
+    architecture: "YOLO"
+    version: "v11"
+    dataset_pattern: "plc_symbols_v11_*.zip"
+    auto_select_latest: true
+    keep_old_versions: true
+
+# OneDrive Dataset Configuration (LEGACY - kept for future cloud storage)
 onedrive:
   base_url: "https://your-sharepoint-url"
   dataset:
     architecture: "YOLO"
     version: "v11"
-    dataset_pattern: "plc_diagrams_yolov11_setA_*.zip"
+    dataset_pattern: "plc_symbols_v11_*.zip"
     auto_select_latest: true
     keep_old_versions: true
 
@@ -87,7 +100,7 @@ The system implements a sophisticated dataset management approach:
 
 #### Dataset Commands
 ```bash
-# List available datasets from OneDrive
+# List available datasets from network drive
 python setup/manage_datasets.py --list-available
 
 # Download latest dataset
@@ -195,8 +208,8 @@ python setup/setup.py
 # 2. Validate everything works
 python setup/validate_setup.py
 
-# 3. Configure OneDrive URL (edit config/download_config.yaml)
-# Update the base_url with your SharePoint link
+# 3. Configure network drive path (edit config/download_config.yaml)
+# Update the base_path with your network storage location
 
 # 4. Download datasets
 python setup/manage_datasets.py --interactive
@@ -232,9 +245,9 @@ python setup/validate_setup.py
    - Run `python setup/validate_setup.py` to check dependencies
 
 2. **Dataset Download Fails**
-   - Check OneDrive URL in `config/download_config.yaml`
-   - Verify network connectivity
-   - Check SharePoint permissions
+   - Check network drive path in `config/download_config.yaml`
+   - Verify network connectivity and drive mapping
+   - Check read permissions on network folder
 
 3. **Symlinks Don't Work**
    - System automatically falls back to copying
@@ -254,13 +267,25 @@ python setup/validate_setup.py
 
 ## Advanced Configuration
 
-### Custom OneDrive Structure
-If your OneDrive has a different structure, update the pattern in `config/download_config.yaml`:
+### Custom Network Drive Structure
+If your network drive has a different structure, update the configuration in `config/download_config.yaml`:
 
 ```yaml
-onedrive:
+network_drive:
+  base_path: "Your\\Network\\Path"
   dataset:
+    architecture: "YOLO"  # Folder structure: base_path/YOLO/v11/
+    version: "v11"
     dataset_pattern: "your_custom_pattern_*.zip"
+```
+
+### Switching Storage Backends
+To switch between network drive and OneDrive (legacy):
+
+```yaml
+storage_backend: "onedrive"  # Switch to OneDrive
+# or
+storage_backend: "network_drive"  # Use network drive (default)
 ```
 
 ### Automatic Downloads

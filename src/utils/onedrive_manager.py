@@ -1,6 +1,10 @@
 """
-OneDrive Manager for PLC Diagram Processor
-Handles dataset downloads from SharePoint/OneDrive
+OneDrive Manager for PLC Diagram Processor (LEGACY)
+Handles dataset downloads from OneDrive/SharePoint
+
+NOTE: This module is preserved for potential future cloud storage implementation.
+Currently, the project uses NetworkDriveManager for dataset retrieval from network storage.
+To reactivate OneDrive support, change storage_backend to "onedrive" in download_config.yaml.
 """
 
 import os
@@ -152,6 +156,8 @@ class OneDriveManager:
                 print("No datasets found in HTML parsing.")
                 print("SharePoint structure might be different than expected.")
                 print("Will use manual dataset specification instead.")
+                # Actually trigger the manual fallback
+                return self._manual_dataset_specification()
             
             return datasets
             

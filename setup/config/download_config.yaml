@@ -1,7 +1,24 @@
 # PLC Diagram Processor Download Configuration
 # Edit this file to customize your setup
 
-# OneDrive Dataset Configuration
+# Storage backend selection
+storage_backend: "network_drive"  # Options: "network_drive", "onedrive" (legacy)
+
+# Network Drive Dataset Configuration (PRIMARY)
+network_drive:
+  # Base path to network storage
+  base_path: "S:\\99_Automation\\Datasets plc-diagram-processor"
+  
+  # Dataset selection
+  dataset:
+    architecture: "YOLO"                    # Model architecture family
+    version: "v11"                          # YOLO version (v8, v9, v10, v11)
+    dataset_pattern: "plc_symbols_v11_*.zip"  # Pattern to match datasets (YYYYMMDDVV format)
+    auto_select_latest: true                # Auto-select most recent by date
+    keep_old_versions: true                 # Keep previous dataset versions
+
+# OneDrive Dataset Configuration (LEGACY - kept for future cloud storage)
+# This configuration is preserved but not actively used
 onedrive:
   # Base SharePoint URL for datasets
   base_url: "https://spieglteccloud-my.sharepoint.com/:f:/g/personal/marco_mendez_spiegltec_at/EvGBHaMWuw5Bjk6EIyi3e0MBJ2-TkqLnmP5icHtUccyeBQ?e=4N47FI"

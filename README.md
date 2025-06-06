@@ -32,9 +32,9 @@ PDF Diagrams → Image Snippets → YOLO11 Detection → Coordinate Transform �
 ```
 
 ### Stage 1: PDF Processing
-- **Input**: PDF files in `data/dataset/test/diagrams/`
-- **Process**: Convert PDFs to overlapping image snippets using `SnipPdfToPng.py`
-- **Output**: PNG snippets with metadata in `data/dataset/test/images/`
+- **Input**: PDF files in `../plc-data/raw/pdfs/`
+- **Process**: Convert PDFs to overlapping image snippets using `src/preprocessing/SnipPdfToPng.py`
+- **Output**: PNG snippets with metadata in `../plc-data/processed/images/`
 
 ### Stage 2: Symbol Detection
 - **Model**: YOLO11m fine-tuned on PLC symbols
@@ -49,7 +49,7 @@ PDF Diagrams → Image Snippets → YOLO11 Detection → Coordinate Transform �
 ### Stage 4: PDF Reconstruction
 - **Process**: Reconstruct original PDFs with detection overlays
 - **Features**: Bounding boxes, labels, confidence scores, detection numbering
-- **Output**: Labeled PDFs and coordinate mapping files in `data/dataset/test/detdiagrams/`
+- **Output**: Labeled PDFs and coordinate mapping files in `../plc-data/processed/`
 
 ### Output Files Generated
 For each processed PDF:
@@ -64,23 +64,21 @@ For each processed PDF:
 ```
 plc-diagram-processor/
 ├── README.md
+├── NETWORK_DRIVE_MIGRATION.md   # Migration documentation
 ├── requirements.txt
 ├── preinstall.sh                # Cross-platform dependency installer
+├── activate.sh                  # Virtual environment activation script
+├── test_network_drive.py        # Network drive connectivity test
 ├── docker/
 │   └── Dockerfile
-├── data/
-│   ├── plc_symbols.yaml         # YOLO11 training configuration
-│   ├── yolo11m.pt              # YOLO11m pretrained model
-│   ├── SnipPdfToPng.py         # PDF to snippets converter
-│   ├── SnipPngToPdf.py         # PDF reconstruction utility
-│   └── dataset/
-│       └── test/
-│           ├── diagrams/        # Original PDF files
-│           ├── images/          # Image snippets + metadata
-│           ├── detdiagrams/     # Reconstructed PDFs with detections
-│           ├── train/           # YOLO training data
-│           ├── valid/           # YOLO validation data
-│           └── labels/          # YOLO label files
+├── setup/                       # Setup and management scripts
+│   ├── setup.py                 # Main setup script
+│   ├── manage_datasets.py       # Dataset management utility
+│   ├── manage_models.py         # Model management utility
+│   ├── validate_setup.py        # Setup validation script
+│   ├── README.md                # Setup documentation
+│   └── config/
+│       └── download_config.yaml # Storage backend configuration
 ├── src/
 │   ├── detection/
 │   │   ├── yolo11_train.py              # YOLO11 training script
@@ -93,13 +91,33 @@ plc-diagram-processor/
 │   ├── ocr/
 │   │   └── paddle_ocr.py
 │   ├── preprocessing/
-│   │   └── generate_synthetic.py
+│   │   ├── generate_synthetic.py
+│   │   ├── SnipPdfToPng.py      # PDF to snippets converter
+│   │   └── SnipPngToPdf.py      # PDF reconstruction utility
 │   ├── structuring/
 │   │   └── layoutlm_train.py
+│   ├── utils/                   # Utility modules
+│   │   ├── dataset_manager.py   # Dataset activation manager
+│   │   ├── model_manager.py     # Model download manager
+│   │   ├── network_drive_manager.py # Network drive storage backend
+│   │   └── onedrive_manager.py  # OneDrive backend (legacy)
 │   └── verification/
 │       └── visual_verify.py
-└── runs/                        # YOLO training outputs
-    └── detect/
+└── data/                        # Local data directory (optional)
+
+../plc-data/                     # Main data directory (sibling to project)
+├── datasets/
+│   ├── downloaded/              # Downloaded datasets from network drive
+│   ├── train/                   # Active training data (symlink/copy)
+│   ├── valid/                   # Active validation data (symlink/copy)
+│   ├── test/                    # Active test data (symlink/copy)
+│   └── plc_symbols.yaml         # Active dataset configuration
+├── models/
+│   ├── pretrained/              # Downloaded YOLO models
+│   └── custom/                  # Trained models
+├── processed/                   # Processed outputs
+├── raw/                         # Raw input PDFs
+└── runs/                        # Training/inference outputs
 ```
 
 ## Quickstart
@@ -110,41 +128,40 @@ git clone https://github.com/your-org/plc-diagram-processor.git
 cd plc-diagram-processor
 ```
 
-### 2. Automated Setup (Recommended)
+### 2. Complete Setup (Recommended)
 ```bash
-# Run the automated setup script
-bash preinstall.sh
+# Run the complete setup script
+python setup/setup.py
 ```
 
-The `preinstall.sh` script will automatically:
-- Detect your operating system (Linux/macOS/Windows)
-- Install system dependencies (Python dev headers, build tools, Poppler)
-- Create and activate a virtual environment
-- Install all Python dependencies from requirements.txt
+This will:
+- Install system dependencies
+- Create virtual environment
+- Install Python dependencies
+- Set up data directory structure
+- Optionally download datasets and models from network drive
 
-### 3. Manual Setup (Alternative)
-
-**For Ubuntu/Debian:**
-```bash
-sudo apt update
-sudo apt install python3-dev python3-pip build-essential poppler-utils
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
+### 3. Configure Data Storage
+Edit `setup/config/download_config.yaml` to set your network drive path:
+```yaml
+storage_backend: "network_drive"
+network_drive:
+  base_path: "S:\\99_Automation\\Datasets plc-diagram-processor"
 ```
 
-**For CentOS/RHEL/Fedora:**
+### 4. Dataset Management
 ```bash
-sudo yum install python3-devel gcc gcc-c++ make poppler-utils
-# or: sudo dnf install python3-devel gcc gcc-c++ make poppler-utils
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
+# Test network drive connectivity
+python test_network_drive.py
+
+# Interactive dataset management
+python setup/manage_datasets.py --interactive
+
+# Download latest dataset
+python setup/manage_datasets.py --download-latest
 ```
 
-### 4. Run Complete Detection Pipeline
+### 5. Run Complete Detection Pipeline
 
 **Full pipeline with training:**
 ```bash
@@ -161,9 +178,9 @@ python src/detection/run_complete_pipeline.py --skip-training
 python src/detection/run_complete_pipeline.py --epochs 20 --conf 0.3 --snippet-size 1200 1000
 ```
 
-### 5. Validate Pipeline Setup
+### 6. Validate Setup
 ```bash
-python src/detection/validate_pipeline_structure.py
+python setup/validate_setup.py
 ```
 
 ## Individual Component Usage
@@ -175,18 +192,18 @@ python src/detection/yolo11_train.py
 
 ### Run Detection Only
 ```bash
-python src/detection/yolo11_infer.py --input data/dataset/test/images --output results
+python src/detection/yolo11_infer.py --input ../plc-data/processed/images --output ../plc-data/processed/results
 ```
 
 ### Process PDFs Step-by-Step
 ```bash
 # 1. Convert PDFs to snippets
-python data/SnipPdfToPng.py
+python src/preprocessing/SnipPdfToPng.py
 
 # 2. Run detection pipeline
-python src/detection/detect_pipeline.py --diagrams data/dataset/test/diagrams --output data/dataset/test
+python src/detection/detect_pipeline.py --diagrams ../plc-data/raw/pdfs --output ../plc-data/processed
 
-# 3. View results in data/dataset/test/detdiagrams/
+# 3. View results in ../plc-data/processed/
 ```
 
 ## Pipeline Configuration
@@ -222,7 +239,7 @@ The pipeline tracks comprehensive metrics:
 ## Next Steps
 
 After completing the detection stage:
-1. Review results in `data/dataset/test/detdiagrams/`
+1. Review results in `../plc-data/processed/`
 2. Check `pipeline_summary.json` for performance metrics
 3. Proceed to OCR and text extraction stage
 4. Continue with data structuring using LayoutLM

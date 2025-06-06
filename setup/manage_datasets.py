@@ -14,7 +14,6 @@ sys.path.append(str(project_root / 'src'))
 
 try:
     import yaml
-    from utils.onedrive_manager import OneDriveManager
     from utils.dataset_manager import DatasetManager
 except ImportError as e:
     print(f"Error importing required modules: {e}")
@@ -39,31 +38,48 @@ def load_config():
         sys.exit(1)
 
 
+def get_storage_manager(config):
+    """Get the appropriate storage manager based on configuration"""
+    storage_backend = config.get('storage_backend', 'network_drive')
+    
+    if storage_backend == 'network_drive':
+        from utils.network_drive_manager import NetworkDriveManager
+        return NetworkDriveManager(config), "Network Drive"
+    else:  # Legacy OneDrive support
+        from utils.onedrive_manager import OneDriveManager
+        return OneDriveManager(config), "OneDrive"
+
+
 def list_available_datasets(config):
     """List datasets available for download"""
     print("=== Available Datasets ===")
     
-    if not config['onedrive']['base_url']:
-        print("Error: OneDrive URL not configured in config/download_config.yaml")
-        return
-    
     try:
-        onedrive_manager = OneDriveManager(config)
-        datasets = onedrive_manager.list_available_datasets()
+        storage_manager, backend_name = get_storage_manager(config)
+        print(f"Using storage backend: {backend_name}")
+        
+        datasets = storage_manager.list_available_datasets()
         
         if not datasets:
-            print("No datasets found")
-            return
+            print(f"No datasets found on {backend_name}.")
+            return []
         
         print(f"Found {len(datasets)} datasets:")
         for i, dataset in enumerate(datasets, 1):
             print(f"  {i}. {dataset['name']}")
             print(f"     Date: {dataset.get('date', 'Unknown')}")
-            print(f"     Size: {dataset.get('size', 'Unknown')}")
+            size_info = dataset.get('size_mb')
+            if size_info:
+                print(f"     Size: {size_info:.1f} MB")
+            else:
+                print(f"     Size: {dataset.get('size', 'Unknown')}")
             print()
+        
+        return datasets
             
     except Exception as e:
         print(f"Error listing datasets: {e}")
+        return []
 
 
 def list_downloaded_datasets(config):
@@ -101,23 +117,21 @@ def download_dataset(config, dataset_name=None, use_latest=False):
     """Download a specific dataset or latest"""
     print("=== Dataset Download ===")
     
-    if not config['onedrive']['base_url']:
-        print("Error: OneDrive URL not configured in config/download_config.yaml")
-        return False
-    
     try:
-        onedrive_manager = OneDriveManager(config)
+        storage_manager, backend_name = get_storage_manager(config)
         dataset_manager = DatasetManager(config)
+        
+        print(f"Using storage backend: {backend_name}")
         
         if use_latest:
             print("Downloading latest dataset...")
-            dataset_path = onedrive_manager.download_dataset(use_latest=True)
+            dataset_path = storage_manager.download_dataset(use_latest=True)
         elif dataset_name:
             print(f"Downloading dataset: {dataset_name}")
-            dataset_path = onedrive_manager.download_dataset(dataset_name, use_latest=False)
+            dataset_path = storage_manager.download_dataset(dataset_name, use_latest=False)
         else:
             # Interactive selection
-            datasets = onedrive_manager.list_available_datasets()
+            datasets = storage_manager.list_available_datasets()
             if not datasets:
                 print("No datasets available")
                 return False
@@ -133,7 +147,7 @@ def download_dataset(config, dataset_name=None, use_latest=False):
                     
                     if 1 <= choice_num <= len(datasets):
                         selected_dataset = datasets[choice_num - 1]
-                        dataset_path = onedrive_manager.download_dataset(selected_dataset['name'], use_latest=False)
+                        dataset_path = storage_manager.download_dataset(selected_dataset['name'], use_latest=False)
                         break
                     else:
                         print(f"Invalid choice. Please enter 1-{len(datasets)}")
@@ -253,9 +267,13 @@ def interactive_mode(config):
     """Interactive dataset management"""
     print("=== Interactive Dataset Management ===")
     
+    # Get storage backend name for display
+    storage_backend = config.get('storage_backend', 'network_drive')
+    backend_name = "Network Drive" if storage_backend == 'network_drive' else "OneDrive"
+    
     while True:
         print("\nOptions:")
-        print("1. List available datasets (OneDrive)")
+        print(f"1. List available datasets ({backend_name})")
         print("2. List downloaded datasets")
         print("3. Download dataset")
         print("4. Activate dataset")

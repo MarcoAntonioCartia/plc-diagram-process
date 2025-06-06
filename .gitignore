@@ -37,7 +37,7 @@ venv.bak/
 .venv/
 yolo/
 data/yolo/
-activate.sh
+
 
 # ===== Project-Specific Data =====
 # Old data directory structure (being migrated)
