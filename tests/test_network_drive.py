@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).resolve().parent
+project_root = Path(__file__).resolve().parent.parent  # Go up one level from tests directory
 sys.path.append(str(project_root / 'src'))
 
 try:
     import yaml
-    from src.utils.network_drive_manager import NetworkDriveManager
-    from src.utils.dataset_manager import DatasetManager
+    from utils.network_drive_manager import NetworkDriveManager
+    from utils.dataset_manager import DatasetManager
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print("Make sure you have activated the virtual environment and installed dependencies")

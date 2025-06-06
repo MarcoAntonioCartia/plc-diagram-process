@@ -14,7 +14,7 @@ sys.path.append(str(project_root / 'src'))
 
 try:
     import yaml
-    from src.utils.dataset_manager import DatasetManager
+    from utils.dataset_manager import DatasetManager
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print("Make sure you have activated the virtual environment and installed dependencies")
@@ -43,10 +43,10 @@ def get_storage_manager(config):
     storage_backend = config.get('storage_backend', 'network_drive')
     
     if storage_backend == 'network_drive':
-        from src.utils.network_drive_manager import NetworkDriveManager
+        from utils.network_drive_manager import NetworkDriveManager
         return NetworkDriveManager(config), "Network Drive"
     else:  # Legacy OneDrive support
-        from src.utils.onedrive_manager import OneDriveManager
+        from utils.onedrive_manager import OneDriveManager
         return OneDriveManager(config), "OneDrive"
 
 

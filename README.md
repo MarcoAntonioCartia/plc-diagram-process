@@ -68,14 +68,18 @@ plc-diagram-processor/
 ├── requirements.txt
 ├── preinstall.sh                # Cross-platform dependency installer
 ├── activate.sh                  # Virtual environment activation script
-├── test_network_drive.py        # Network drive connectivity test
+├── tests/                       # Test scripts directory
+│   ├── test_network_drive.py    # Network drive connectivity test
+│   ├── test_wsl_poppler.py      # WSL poppler integration test
+│   ├── test_pipeline.py         # Pipeline validation test
+│   ├── validate_setup.py        # Setup validation script
+│   └── README.md                # Test documentation
 ├── docker/
 │   └── Dockerfile
 ├── setup/                       # Setup and management scripts
 │   ├── setup.py                 # Main setup script
 │   ├── manage_datasets.py       # Dataset management utility
 │   ├── manage_models.py         # Model management utility
-│   ├── validate_setup.py        # Setup validation script
 │   ├── README.md                # Setup documentation
 │   └── config/
 │       └── download_config.yaml # Storage backend configuration
@@ -152,7 +156,7 @@ network_drive:
 ### 4. Dataset Management
 ```bash
 # Test network drive connectivity
-python test_network_drive.py
+python tests/test_network_drive.py
 
 # Interactive dataset management
 python setup/manage_datasets.py --interactive
@@ -180,7 +184,7 @@ python src/detection/run_complete_pipeline.py --epochs 20 --conf 0.3 --snippet-s
 
 ### 6. Validate Setup
 ```bash
-python setup/validate_setup.py
+python tests/validate_setup.py
 ```
 
 ## Individual Component Usage

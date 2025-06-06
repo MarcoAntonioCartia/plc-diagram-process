@@ -11,7 +11,7 @@ This directory contains all setup-related files and utilities for the PLC Diagra
 ### Management Scripts
 - **`manage_datasets.py`** - Dataset download and management utility
 - **`manage_models.py`** - YOLO model download and management utility
-- **`validate_setup.py`** - Setup validation and testing script
+- **`validate_setup.py`** - (Moved to tests/ directory)
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ This will:
 
 ### 2. Validate Setup
 ```bash
-python setup/validate_setup.py
+python tests/validate_setup.py
 ```
 
 ### 3. Manage Data

@@ -42,6 +42,7 @@ def test_imports():
         ('utils.dataset_manager', 'Dataset Manager'),
         ('utils.model_manager', 'Model Manager'),
         ('utils.onedrive_manager', 'OneDrive Manager'),
+        ('utils.network_drive_manager', 'Network Drive Manager'),
     ]
     
     for module_name, display_name in project_modules:
@@ -137,9 +138,9 @@ def test_managers():
     
     try:
         import yaml
-        from src.utils.dataset_manager import DatasetManager
-        from src.utils.model_manager import ModelManager
-        from src.utils.onedrive_manager import OneDriveManager
+        from utils.dataset_manager import DatasetManager
+        from utils.model_manager import ModelManager
+        from utils.onedrive_manager import OneDriveManager
         
         # Load config
         config_path = project_root / 'setup' / 'config' / 'download_config.yaml'
@@ -207,7 +208,7 @@ def test_scripts():
     scripts = [
         'setup/manage_datasets.py',
         'setup/manage_models.py',
-        'setup/validate_setup.py'
+        'tests/validate_setup.py'
     ]
     
     missing_scripts = []

@@ -224,14 +224,29 @@ class DatasetManager:
         else:
             print(f"Warning: No data.yaml found in dataset, using defaults")
             source_config = {"names": {0: "PLC"}, "nc": 1}  # Default fallback
-        
+    
+        # Handle both dictionary and list formats for names
+        names = source_config.get("names", {0: "PLC"})
+        if isinstance(names, dict):
+            # Dictionary format: {0: 'class1', 1: 'class2'}
+            class_names = list(names.values())
+            names_dict = names
+        elif isinstance(names, list):
+            # List format: ['class1', 'class2'] -> convert to dict
+            class_names = names
+            names_dict = {i: name for i, name in enumerate(names)}
+        else:
+            # Fallback for unexpected format
+            class_names = ["PLC"]
+            names_dict = {0: "PLC"}
+            
         # Create updated config
         updated_config = {
             "path": str(self.datasets_dir),
             "train": "train/images",
             "val": "valid/images", 
             "test": "test/images",
-            "names": source_config.get("names", {0: "PLC"}),
+            "names": names_dict,  # Use the converted dictionary format
             "nc": source_config.get("nc", 1),
             # Metadata for tracking
             "_metadata": {
@@ -240,7 +255,7 @@ class DatasetManager:
                 "last_updated": datetime.now().isoformat(),
                 "source_dataset": str(source_yaml) if source_yaml.exists() else None,
                 "dataset_classes": source_config.get("nc", 1),
-                "class_names": list(source_config.get("names", {0: "PLC"}).values())
+                "class_names": class_names  # Use the already converted class_names list
             }
         }
         
@@ -293,7 +308,17 @@ class DatasetManager:
                 with open(data_yaml, 'r') as f:
                     yaml_config = yaml.safe_load(f)
                 info["classes"] = yaml_config.get("nc", 0)
-                info["class_names"] = list(yaml_config.get("names", {}).values())
+                # Handles both dictionary and list formats for names
+                names = yaml_config.get("names", {})
+                if isinstance(names, dict):
+                    # Dictionary format: {0: 'class1', 1: 'class2'}
+                    info["class_names"] = list(names.values())
+                elif isinstance(names, list):
+                    # List format: ['class1', 'class2']
+                    info["class_names"] = names
+                else:
+                    # Fallback for unexpected format
+                    info["class_names"] = []
             except Exception:
                 info["classes"] = 0
                 info["class_names"] = []

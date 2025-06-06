@@ -59,7 +59,7 @@ Where YYYYMMDDVV represents:
 ### Testing Network Drive Access
 ```bash
 # Test network drive connectivity and configuration
-python test_network_drive.py
+python tests/test_network_drive.py
 ```
 
 ### Managing Datasets

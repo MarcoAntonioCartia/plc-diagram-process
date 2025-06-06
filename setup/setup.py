@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class PLCSetup:
     def __init__(self, data_root: Optional[str] = None, dry_run: bool = False, parallel_jobs: int = 4):
-        self.project_root = Path(__file__).parent.absolute()
+        self.project_root = Path(__file__).parent.parent.absolute()  # Go up one level from setup directory
         self.data_root = Path(data_root).absolute() if data_root else self.project_root.parent / 'plc-data'
         self.venv_name = 'yolovenv'
         self.venv_path = self.project_root / self.venv_name
@@ -180,19 +180,144 @@ class PLCSetup:
                 return False
         return True
 
+    def _check_wsl_available(self) -> bool:
+        """Check if WSL is available on Windows."""
+        try:
+            result = subprocess.run(['wsl', '--list'], capture_output=True, text=True, timeout=5)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+    
+    def _install_poppler_via_wsl(self) -> bool:
+        """Install poppler using WSL on Windows."""
+        print("\n=== Installing Poppler via WSL ===")
+        
+        # Update package list in WSL
+        print("Updating WSL package list...")
+        update_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apt-get update']
+        if not self.run_command(update_cmd, "Updating WSL packages", shell=False):
+            return False
+        
+        # Install poppler-utils in WSL
+        print("Installing poppler-utils in WSL...")
+        install_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apt-get install -y poppler-utils']
+        if not self.run_command(install_cmd, "Installing poppler-utils", shell=False):
+            return False
+        
+        # Create a Windows-accessible poppler wrapper
+        print("Creating Windows-accessible poppler wrapper...")
+        wrapper_dir = self.project_root / 'bin' / 'poppler'
+        
+        if not self.dry_run:
+            wrapper_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create wrapper scripts for poppler tools
+            poppler_tools = ['pdftotext', 'pdftoppm', 'pdfinfo', 'pdfimages']
+            
+            for tool in poppler_tools:
+                wrapper_path = wrapper_dir / f'{tool}.bat'
+                wrapper_content = f'''@echo off
+wsl -e {tool} %*
+'''
+                with open(wrapper_path, 'w') as f:
+                    f.write(wrapper_content)
+                print(f"  Created wrapper: {wrapper_path}")
+            
+            # Add to PATH for current session
+            current_path = os.environ.get('PATH', '')
+            if str(wrapper_dir) not in current_path:
+                os.environ['PATH'] = f"{wrapper_dir};{current_path}"
+                print(f"  Added {wrapper_dir} to PATH for current session")
+            
+            print("\nPoppler installed successfully via WSL!")
+            print("  Note: The poppler tools are now accessible through WSL wrappers.")
+            print(f"  Wrapper location: {wrapper_dir}")
+            print("  You may want to add this directory to your system PATH permanently.")
+        
+        return True
+    
     def _install_windows_dependencies(self) -> bool:
         """Install dependencies on Windows."""
         print("Windows detected")
-        print("Please ensure the following are installed manually:")
-        print("1. Visual Studio Build Tools for C++ compilation")
-        print("2. Poppler from: https://github.com/oschwartz10612/poppler-windows/releases")
-        print("   Extract to: bin/poppler/Library/bin/ and add to PATH")
+        
+        # Check for Visual Studio Build Tools
+        print("\n1. Checking for Visual Studio Build Tools...")
+        vs_installed = self._check_visual_studio_installed()
+        
+        if not vs_installed:
+            print("⚠ Visual Studio Build Tools not detected.")
+            print("  Please install from: https://visualstudio.microsoft.com/downloads/")
+            print("  Select 'Desktop development with C++' workload")
+            
+            if not self.dry_run:
+                response = input("\nHave you installed Visual Studio Build Tools? (y/n): ")
+                if response.lower() != 'y':
+                    print("Please install Visual Studio Build Tools and run setup again.")
+                    return False
+        else:
+            print("Visual Studio Build Tools detected")
+        
+        # Check for WSL and install poppler
+        print("\n2. Setting up Poppler...")
+        
+        if self._check_wsl_available():
+            print("WSL detected - will install poppler automatically")
+            
+            if not self._install_poppler_via_wsl():
+                print("\n⚠ Failed to install poppler via WSL")
+                print("Falling back to manual installation instructions...")
+                return self._manual_poppler_instructions()
+        else:
+            print("⚠ WSL not detected")
+            print("\nWSL (Windows Subsystem for Linux) is recommended for automatic poppler installation.")
+            print("To install WSL:")
+            print("  1. Open PowerShell as Administrator")
+            print("  2. Run: wsl --install")
+            print("  3. Restart your computer")
+            print("  4. Run this setup again")
+            
+            if not self.dry_run:
+                response = input("\nDo you want to continue with manual poppler installation? (y/n): ")
+                if response.lower() != 'y':
+                    print("\nPlease install WSL and run setup again for automatic installation.")
+                    return False
+            
+            return self._manual_poppler_instructions()
+        
+        return True
+    
+    def _check_visual_studio_installed(self) -> bool:
+        """Check if Visual Studio or Build Tools are installed."""
+        # Check common VS installation paths
+        vs_paths = [
+            Path("C:/Program Files (x86)/Microsoft Visual Studio"),
+            Path("C:/Program Files/Microsoft Visual Studio"),
+            Path("C:/Program Files (x86)/Microsoft Visual Studio/2019"),
+            Path("C:/Program Files (x86)/Microsoft Visual Studio/2022"),
+        ]
+        
+        for path in vs_paths:
+            if path.exists():
+                return True
+        
+        # Check for cl.exe in PATH
+        return shutil.which('cl') is not None
+    
+    def _manual_poppler_instructions(self) -> bool:
+        """Provide manual poppler installation instructions."""
+        print("\n=== Manual Poppler Installation Required ===")
+        print("Please install Poppler manually:")
+        print("1. Download from: https://github.com/oschwartz10612/poppler-windows/releases")
+        print("2. Extract the archive")
+        print("3. Add the 'bin' folder to your system PATH")
+        print("   Example: C:\\poppler-xx.xx.x\\Library\\bin")
         
         if not self.dry_run:
-            response = input("Have you installed the above dependencies? (y/n): ")
+            response = input("\nHave you installed Poppler manually? (y/n): ")
             if response.lower() != 'y':
-                print("Please install the dependencies and run the setup again.")
+                print("Please install Poppler and run the setup again.")
                 return False
+        
         return True
 
     def create_virtual_environment(self) -> bool:
@@ -886,17 +1011,17 @@ class PLCSetup:
         try:
             # Import managers here to avoid import issues during setup
             sys.path.append(str(self.project_root / 'src'))
-            from src.utils.dataset_manager import DatasetManager
+            from utils.dataset_manager import DatasetManager
             
             # Import appropriate storage backend
             storage_backend = config.get('storage_backend', 'network_drive')
             
             if storage_backend == 'network_drive':
-                from src.utils.network_drive_manager import NetworkDriveManager
+                from utils.network_drive_manager import NetworkDriveManager
                 storage_manager = NetworkDriveManager(config)
                 backend_name = "Network Drive"
             else:  # Legacy OneDrive support
-                from src.utils.onedrive_manager import OneDriveManager
+                from utils.onedrive_manager import OneDriveManager
                 storage_manager = OneDriveManager(config)
                 backend_name = "OneDrive"
             
@@ -979,7 +1104,7 @@ class PLCSetup:
         try:
             # Import managers here to avoid import issues during setup
             sys.path.append(str(self.project_root / 'src'))
-            from src.utils.model_manager import ModelManager
+            from utils.model_manager import ModelManager
             
             print("\n=== Model Download ===")
             

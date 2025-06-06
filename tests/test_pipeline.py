@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).resolve().parent.parent.parent
+project_root = Path(__file__).resolve().parent.parent  # Go up from tests to project root
 sys.path.append(str(project_root))
 
 from src.config import get_config
