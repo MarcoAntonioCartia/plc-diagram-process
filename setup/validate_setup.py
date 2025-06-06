@@ -137,9 +137,9 @@ def test_managers():
     
     try:
         import yaml
-        from utils.dataset_manager import DatasetManager
-        from utils.model_manager import ModelManager
-        from utils.onedrive_manager import OneDriveManager
+        from src.utils.dataset_manager import DatasetManager
+        from src.utils.model_manager import ModelManager
+        from src.utils.onedrive_manager import OneDriveManager
         
         # Load config
         config_path = project_root / 'setup' / 'config' / 'download_config.yaml'

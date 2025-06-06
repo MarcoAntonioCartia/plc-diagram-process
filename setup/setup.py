@@ -886,17 +886,17 @@ class PLCSetup:
         try:
             # Import managers here to avoid import issues during setup
             sys.path.append(str(self.project_root / 'src'))
-            from utils.dataset_manager import DatasetManager
+            from src.utils.dataset_manager import DatasetManager
             
             # Import appropriate storage backend
             storage_backend = config.get('storage_backend', 'network_drive')
             
             if storage_backend == 'network_drive':
-                from utils.network_drive_manager import NetworkDriveManager
+                from src.utils.network_drive_manager import NetworkDriveManager
                 storage_manager = NetworkDriveManager(config)
                 backend_name = "Network Drive"
             else:  # Legacy OneDrive support
-                from utils.onedrive_manager import OneDriveManager
+                from src.utils.onedrive_manager import OneDriveManager
                 storage_manager = OneDriveManager(config)
                 backend_name = "OneDrive"
             
@@ -979,7 +979,7 @@ class PLCSetup:
         try:
             # Import managers here to avoid import issues during setup
             sys.path.append(str(self.project_root / 'src'))
-            from utils.model_manager import ModelManager
+            from src.utils.model_manager import ModelManager
             
             print("\n=== Model Download ===")
             

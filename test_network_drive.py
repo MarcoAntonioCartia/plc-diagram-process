@@ -13,8 +13,8 @@ sys.path.append(str(project_root / 'src'))
 
 try:
     import yaml
-    from utils.network_drive_manager import NetworkDriveManager
-    from utils.dataset_manager import DatasetManager
+    from src.utils.network_drive_manager import NetworkDriveManager
+    from src.utils.dataset_manager import DatasetManager
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print("Make sure you have activated the virtual environment and installed dependencies")
@@ -67,9 +67,9 @@ def test_network_drive_access():
     # Test network access
     print("\n1. Testing network drive access...")
     if network_manager.check_network_access():
-        print("   ✓ Network drive is accessible")
+        print("   Network drive is accessible")
     else:
-        print("   ✗ Network drive is NOT accessible")
+        print("   Network drive is NOT accessible")
         print("   Please check:")
         print("   - Network drive is mapped/mounted")
         print("   - Path is correct in config")
@@ -81,14 +81,14 @@ def test_network_drive_access():
     datasets = network_manager.list_available_datasets()
     
     if datasets:
-        print(f"   ✓ Found {len(datasets)} datasets:")
+        print(f"   Found {len(datasets)} datasets:")
         for i, dataset in enumerate(datasets, 1):
             print(f"      {i}. {dataset['name']}")
             print(f"         Date: {dataset['date']}")
             print(f"         Version: {dataset['version']}")
             print(f"         Size: {dataset['size_mb']:.1f} MB")
     else:
-        print("   ✗ No datasets found")
+        print("   No datasets found")
         print("   Please check:")
         print("   - Dataset files exist in the network path")
         print("   - Files match the pattern in config")
@@ -98,7 +98,7 @@ def test_network_drive_access():
     print("\n3. Testing Dataset Manager...")
     try:
         dataset_manager = DatasetManager(config)
-        print("   ✓ Dataset Manager initialized successfully")
+        print("   Dataset Manager initialized successfully")
         
         # List downloaded datasets
         downloaded = dataset_manager.list_downloaded_datasets()
@@ -117,7 +117,7 @@ def test_network_drive_access():
             print("   No active dataset")
             
     except Exception as e:
-        print(f"   ✗ Error with Dataset Manager: {e}")
+        print(f"   Error with Dataset Manager: {e}")
         return False
     
     print("\n=== All tests passed! ===")
