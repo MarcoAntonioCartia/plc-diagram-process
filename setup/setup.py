@@ -896,12 +896,180 @@ wsl -e {tool} %*
         # Default timeout for other packages
         return 600  # 10 minutes
 
+    def _needs_special_handling(self, package_name: str) -> bool:
+        """Check if a package needs special installation handling."""
+        special_packages = {
+            'paddleocr',     # Compilation issues on Windows
+            'numpy',         # Sometimes needs pre-compiled wheels
+            'scipy',         # Compilation dependencies
+            'opencv-python', # Sometimes has wheel issues
+        }
+        return package_name.lower() in special_packages
+    
+    def _install_package_with_special_handling(self, package: str, base_name: str, timeout: int) -> Tuple[str, bool, str]:
+        """Install packages that need special handling with multiple fallback strategies."""
+        print(f"  Package {base_name} requires special handling...")
+        
+        strategies = []
+        
+        if base_name.lower() == 'paddleocr':
+            strategies = [
+                ("Pre-installing NumPy with wheels", self._preinstall_numpy_for_paddleocr),
+                ("Installing with binary wheels only", lambda: self._install_with_wheels_only(package, timeout)),
+                ("Installing with no build isolation", lambda: self._install_with_no_build_isolation(package, timeout)),
+                ("Installing with pre-built dependencies", lambda: self._install_paddleocr_with_deps(package, timeout)),
+            ]
+        elif base_name.lower() == 'numpy':
+            strategies = [
+                ("Installing with binary wheels only", lambda: self._install_with_wheels_only(package, timeout)),
+                ("Installing specific NumPy version", lambda: self._install_specific_numpy_version(timeout)),
+            ]
+        elif base_name.lower() in ['scipy', 'opencv-python']:
+            strategies = [
+                ("Installing with binary wheels only", lambda: self._install_with_wheels_only(package, timeout)),
+                ("Standard installation", lambda: self._install_standard(package, timeout)),
+            ]
+        else:
+            # Default fallback for other special packages
+            strategies = [
+                ("Installing with binary wheels only", lambda: self._install_with_wheels_only(package, timeout)),
+                ("Standard installation", lambda: self._install_standard(package, timeout)),
+            ]
+        
+        # Try each strategy in order
+        for i, (strategy_name, strategy_func) in enumerate(strategies, 1):
+            print(f"  Strategy {i}/{len(strategies)}: {strategy_name}")
+            
+            try:
+                success, error_msg = strategy_func()
+                if success:
+                    print(f"    ✓ Success with {strategy_name}")
+                    return package, True, ""
+                else:
+                    print(f"    ✗ Failed: {error_msg}")
+                    if i < len(strategies):
+                        print(f"    Trying next strategy...")
+            except Exception as e:
+                print(f"    ✗ Strategy failed with exception: {e}")
+                if i < len(strategies):
+                    print(f"    Trying next strategy...")
+        
+        return package, False, f"All {len(strategies)} installation strategies failed"
+    
+    def _preinstall_numpy_for_paddleocr(self) -> Tuple[bool, str]:
+        """Pre-install NumPy with a known working version for PaddleOCR."""
+        print("    Pre-installing NumPy 1.24.3 (known to work with PaddleOCR)...")
+        try:
+            result = subprocess.run(
+                [str(self.venv_pip), 'install', 'numpy==1.24.3', '--only-binary=all', '--no-cache-dir'],
+                capture_output=True, text=True, timeout=600
+            )
+            return result.returncode == 0, result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            return False, "NumPy pre-installation timed out"
+        except Exception as e:
+            return False, str(e)
+    
+    def _install_with_wheels_only(self, package: str, timeout: int) -> Tuple[bool, str]:
+        """Install package using only pre-compiled wheels."""
+        try:
+            result = subprocess.run(
+                [str(self.venv_pip), 'install', package, '--only-binary=all', '--no-cache-dir'],
+                capture_output=True, text=True, timeout=timeout
+            )
+            return result.returncode == 0, result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            return False, f"Wheels-only installation timed out ({timeout//60} minutes)"
+        except Exception as e:
+            return False, str(e)
+    
+    def _install_with_no_build_isolation(self, package: str, timeout: int) -> Tuple[bool, str]:
+        """Install package with no build isolation."""
+        try:
+            result = subprocess.run(
+                [str(self.venv_pip), 'install', package, '--no-build-isolation', '--no-cache-dir'],
+                capture_output=True, text=True, timeout=timeout
+            )
+            return result.returncode == 0, result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            return False, f"No-build-isolation installation timed out ({timeout//60} minutes)"
+        except Exception as e:
+            return False, str(e)
+    
+    def _install_paddleocr_with_deps(self, package: str, timeout: int) -> Tuple[bool, str]:
+        """Install PaddleOCR with pre-installed dependencies."""
+        print("    Installing PaddleOCR dependencies first...")
+        
+        # Install known working versions of dependencies
+        deps = [
+            'Pillow>=8.2.0',
+            'opencv-python>=4.6.0',
+            'shapely>=1.7.0',
+            'scikit-image>=0.17.2',
+            'imgaug>=0.4.0',
+            'pyclipper>=1.2.0',
+            'lmdb>=1.0.0',
+        ]
+        
+        for dep in deps:
+            try:
+                result = subprocess.run(
+                    [str(self.venv_pip), 'install', dep, '--only-binary=all', '--no-cache-dir'],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode != 0:
+                    print(f"      Warning: Could not install {dep}")
+            except:
+                print(f"      Warning: Failed to install {dep}")
+        
+        # Now try to install PaddleOCR
+        try:
+            result = subprocess.run(
+                [str(self.venv_pip), 'install', package, '--no-deps', '--no-cache-dir'],
+                capture_output=True, text=True, timeout=timeout
+            )
+            return result.returncode == 0, result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            return False, f"PaddleOCR installation timed out ({timeout//60} minutes)"
+        except Exception as e:
+            return False, str(e)
+    
+    def _install_specific_numpy_version(self, timeout: int) -> Tuple[bool, str]:
+        """Install a specific NumPy version known to work."""
+        try:
+            result = subprocess.run(
+                [str(self.venv_pip), 'install', 'numpy==1.24.3', '--only-binary=all', '--no-cache-dir'],
+                capture_output=True, text=True, timeout=timeout
+            )
+            return result.returncode == 0, result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            return False, f"NumPy installation timed out ({timeout//60} minutes)"
+        except Exception as e:
+            return False, str(e)
+    
+    def _install_standard(self, package: str, timeout: int) -> Tuple[bool, str]:
+        """Standard package installation."""
+        try:
+            result = subprocess.run(
+                [str(self.venv_pip), 'install', package, '--no-cache-dir'],
+                capture_output=True, text=True, timeout=timeout
+            )
+            return result.returncode == 0, result.stderr.strip() if result.stderr else ""
+        except subprocess.TimeoutExpired:
+            return False, f"Standard installation timed out ({timeout//60} minutes)"
+        except Exception as e:
+            return False, str(e)
+
     def install_single_package(self, package: str) -> Tuple[str, bool, str]:
-        """Install a single package with appropriate timeout."""
+        """Install a single package with appropriate timeout and special handling."""
         timeout = self.get_package_timeout(package)
         base_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0]
         
         print(f"Installing {base_name} (timeout: {timeout//60} minutes)...")
+        
+        # Check if this package needs special handling
+        if self._needs_special_handling(base_name):
+            return self._install_package_with_special_handling(package, base_name, timeout)
         
         try:
             # For very large packages, show live output instead of capturing it
