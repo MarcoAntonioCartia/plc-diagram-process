@@ -7,29 +7,58 @@ import numpy as np
 from PIL import Image
 from pdf2image import convert_from_path
 
+# Try to import WSL wrapper
+try:
+    from .pdf_to_image_wsl import convert_from_path_wsl, test_wsl_poppler
+except ImportError:
+    try:
+        from pdf_to_image_wsl import convert_from_path_wsl, test_wsl_poppler
+    except ImportError:
+        convert_from_path_wsl = None
+        test_wsl_poppler = None
+
 
 def find_poppler_path():
     """
     Determine the appropriate poppler path based on the platform.
-    - On Linux/macOS: assumes poppler-utils is installed system-wide.
-    - On Windows: tries to locate poppler in a local directory or via env variable.
+    
+    Detection order:
+    1. Environment variable POPPLER_PATH (all platforms)
+    2. Local bin/poppler directory (Windows)
+    3. System-wide installation (Linux/macOS)
+    4. WSL fallback (Windows only, handled by caller)
+    
+    Returns:
+        str or None: Path to poppler binaries, or None if not found
     """
+    # Check environment variable first (works on all platforms)
+    env_path = os.environ.get("POPPLER_PATH")
+    if env_path and Path(env_path).exists():
+        print(f"Using poppler from POPPLER_PATH: {env_path}")
+        return env_path
+
     if platform.system() == "Windows":
-        # Check environment variable first
-        env_path = os.environ.get("POPPLER_PATH")
-        if env_path and Path(env_path).exists():
-            return env_path
+        # Look for poppler in project root/bin/poppler
+        project_root = Path(__file__).resolve().parent.parent.parent
+        poppler_locations = [
+            project_root / "bin" / "poppler" / "Library" / "bin",
+            project_root / "bin" / "poppler"
+        ]
+        
+        for location in poppler_locations:
+            if location.exists():
+                # Check if it contains poppler executables
+                if ((location / "pdftoppm.exe").exists() or 
+                    (location / "pdftoppm").exists()):
+                    print(f"Using local poppler: {location}")
+                    return str(location)
 
-        # Default fallback path (e.g. project_root/bin/poppler/Library/bin)
-        fallback = Path(__file__).resolve().parent.parent / "bin" / "poppler" / "Library" / "bin"
-        if fallback.exists():
-            return str(fallback)
-
-        raise RuntimeError(
-            "Poppler not found. Please set the POPPLER_PATH env variable or place poppler binaries in ./bin/poppler/Library/bin"
-        )
+        # Return None to indicate poppler not found
+        # The caller will try WSL as a fallback
+        return None
     else:
         # On Unix-like systems, system-wide installation is expected
+        # pdf2image will use system poppler automatically when path is None
         return None
 
 
@@ -37,8 +66,18 @@ def snip_pdf_to_images(pdf_path, output_folder, snippet_size=(800, 600), overlap
     """
     Convert PDF to image(s), then snip each image into overlapping chunks.
     """
-    # Convert PDF pages to images
-    images = convert_from_path(str(pdf_path), poppler_path=poppler_path)
+    # Try WSL conversion first if available on Windows
+    if platform.system() == "Windows" and test_wsl_poppler and test_wsl_poppler():
+        try:
+            print("Using WSL poppler for PDF conversion...")
+            images = convert_from_path_wsl(str(pdf_path))
+        except Exception as e:
+            print(f"WSL conversion failed: {e}, falling back to standard method")
+            images = convert_from_path(str(pdf_path), poppler_path=poppler_path)
+    else:
+        # Standard conversion
+        images = convert_from_path(str(pdf_path), poppler_path=poppler_path)
+    
     if not images:
         return
 
@@ -150,10 +189,24 @@ def process_pdf_folder(input_folder, output_folder, snippet_size=(800, 600), ove
 
 
 if __name__ == "__main__":
-    # 📂 Resolve base directory relative to this script
-    base_dir = Path(__file__).resolve().parent
-    input_dir = base_dir / "dataset" / "test" / "diagrams"
-    output_dir = base_dir / "dataset" / "test" / "images"
+    # 📂 Get project root and data paths
+    project_root = Path(__file__).resolve().parent.parent.parent
+    
+    # Try to load config for paths
+    import sys
+    sys.path.append(str(project_root))
+    
+    try:
+        from src.config import get_config
+        config = get_config()
+        data_root = Path(config.config['data_root'])
+        input_dir = data_root / "raw" / "pdfs"
+        output_dir = data_root / "processed" / "images"
+    except:
+        # Fallback to default paths
+        data_root = project_root.parent / "plc-data"
+        input_dir = data_root / "raw" / "pdfs"
+        output_dir = data_root / "processed" / "images"
 
     # 🧩 Snippet settings
     snippet_size = (1500, 1200)

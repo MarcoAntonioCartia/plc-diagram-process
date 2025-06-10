@@ -26,31 +26,34 @@ def validate_pipeline_structure():
         print(f"ERROR: Could not load configuration: {e}")
         return False
     
-    # Check folder structure using config
-    dataset_path = config.get_dataset_path()
-    test_base = dataset_path.parent / "test"  # Assuming test data is alongside dataset
-    required_folders = ["diagrams", "images", "detdiagrams"]
+    # Check folder structure using new layout
+    data_root = Path(config.config['data_root'])
+    folder_mapping = {
+        "raw/pdfs": "Input PDFs",
+        "processed/images": "Processed image snippets", 
+        "processed/detdiagrams": "Detection results"
+    }
     
     print("1. Folder Structure:")
     all_folders_exist = True
-    for folder in required_folders:
-        folder_path = test_base / folder
-        if folder_path.exists():
-            print(f"   ✓ {folder}/ exists")
+    for folder_path, description in folder_mapping.items():
+        full_path = data_root / folder_path
+        if full_path.exists():
+            print(f"   ✓ {folder_path}/ exists - {description}")
             
             # Count contents
-            if folder == "diagrams":
-                pdf_count = len(list(folder_path.glob("*.pdf")))
+            if folder_path == "raw/pdfs":
+                pdf_count = len(list(full_path.glob("*.pdf")))
                 print(f"     - Contains {pdf_count} PDF files")
-            elif folder == "images":
-                png_count = len(list(folder_path.glob("*.png")))
-                json_count = len(list(folder_path.glob("*.json")))
+            elif folder_path == "processed/images":
+                png_count = len(list(full_path.glob("*.png")))
+                json_count = len(list(full_path.glob("*.json")))
                 print(f"     - Contains {png_count} PNG files, {json_count} JSON files")
-            elif folder == "detdiagrams":
-                file_count = len(list(folder_path.glob("*")))
+            elif folder_path == "processed/detdiagrams":
+                file_count = len(list(full_path.glob("*")))
                 print(f"     - Contains {file_count} files")
         else:
-            print(f"   ✗ {folder}/ missing")
+            print(f"   ✗ {folder_path}/ missing - {description}")
             all_folders_exist = False
     
     # Check pipeline scripts

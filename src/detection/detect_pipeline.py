@@ -31,7 +31,7 @@ class PLCDetectionPipeline:
         self.confidence_threshold = confidence_threshold
         self.project_root = Path(__file__).resolve().parent.parent.parent
         
-    def process_pdf_folder(self, diagrams_folder, output_folder=None, snippet_size=(1500, 1200), overlap=500):
+    def process_pdf_folder(self, diagrams_folder, output_folder=None, snippet_size=(1500, 1200), overlap=500, skip_pdf_conversion=False):
         """
         Complete pipeline: PDF → Snippets → Detection → Reconstruction
         
@@ -40,6 +40,7 @@ class PLCDetectionPipeline:
             output_folder: Output folder for results (auto-generated if None)
             snippet_size: Size of image snippets
             overlap: Overlap between snippets
+            skip_pdf_conversion: Skip PDF to image conversion step (assumes images already exist)
         """
         diagrams_folder = Path(diagrams_folder)
         if not diagrams_folder.exists():
@@ -60,9 +61,17 @@ class PLCDetectionPipeline:
         print("Starting PLC Detection Pipeline")
         print("=" * 50)
         
-        # Step 1: Convert PDFs to snippets
-        print("Step 1: Converting PDFs to image snippets...")
-        self._run_pdf_to_snippets(diagrams_folder, images_folder, snippet_size, overlap)
+        # Step 1: Convert PDFs to snippets (skip if requested)
+        if skip_pdf_conversion:
+            print("Step 1: Skipping PDF conversion (using existing images)")
+            # Verify images exist
+            image_count = len(list(images_folder.glob("*.png")))
+            if image_count == 0:
+                raise FileNotFoundError(f"No PNG images found in {images_folder}. Run preprocessing first.")
+            print(f"Found {image_count} existing image snippets")
+        else:
+            print("Step 1: Converting PDFs to image snippets...")
+            self._run_pdf_to_snippets(diagrams_folder, images_folder, snippet_size, overlap)
         
         # Step 2: Run detection on all snippets
         print("\nStep 2: Running YOLO11 detection on snippets...")
@@ -79,21 +88,27 @@ class PLCDetectionPipeline:
     
     def _run_pdf_to_snippets(self, diagrams_folder, images_folder, snippet_size, overlap):
         """Run the PDF to snippets conversion"""
-        snip_script = self.project_root / "data" / "SnipPdfToPng.py"
+        # Add the src directory to sys.path to ensure proper imports
+        import sys
+        src_path = str(self.project_root / "src")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
         
-        # Temporarily modify the script to use custom paths
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("snip_module", snip_script)
-        snip_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(snip_module)
+        # Import the preprocessing module properly
+        from preprocessing.SnipPdfToPng import process_pdf_folder, find_poppler_path
+        
+        # Try to find poppler path
+        poppler_path = find_poppler_path()
+        if poppler_path is None:
+            print("Native poppler not found, will try WSL if available")
         
         # Run the snipping process
-        snip_module.process_pdf_folder(
+        process_pdf_folder(
             input_folder=diagrams_folder,
             output_folder=images_folder,
             snippet_size=snippet_size,
             overlap=overlap,
-            poppler_path=snip_module.find_poppler_path()
+            poppler_path=poppler_path
         )
     
     def _detect_on_snippets(self, images_folder):
@@ -217,6 +232,8 @@ def main():
                        help='Snippet size as width height (default: 1500 1200)')
     parser.add_argument('--overlap', type=int, default=500,
                        help='Overlap between snippets (default: 500)')
+    parser.add_argument('--skip-pdf-conversion', action='store_true',
+                       help='Skip PDF to image conversion (use existing images)')
     
     args = parser.parse_args()
     
@@ -232,7 +249,8 @@ def main():
             diagrams_folder=args.diagrams,
             output_folder=args.output,
             snippet_size=tuple(args.snippet_size),
-            overlap=args.overlap
+            overlap=args.overlap,
+            skip_pdf_conversion=args.skip_pdf_conversion
         )
         
         print(f"\nPipeline completed successfully!")
