@@ -178,6 +178,19 @@ results/
 predictions/
 inference_outputs/
 
+# ===== Experimental and Benchmark Files =====
+# Benchmark results
+*benchmark_results*.json
+gpu_benchmark_results_*.json
+benchmark_plot_*.png
+
+# Experimental analysis documents
+GPU_OPTIMIZATION_ANALYSIS*.md
+
+# Keep experiments folder structure but ignore large files
+experiments/**/gpu_benchmark_results_*.json
+experiments/**/*benchmark_plot*.png
+
 # ===== Documentation Build =====
 docs/_build/
 docs/build/
