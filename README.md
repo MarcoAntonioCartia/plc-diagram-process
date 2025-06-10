@@ -240,14 +240,96 @@ The pipeline tracks comprehensive metrics:
 - Processing time for each stage
 - Coordinate transformation accuracy
 
+## Text Extraction Pipeline
+
+The project now includes a comprehensive text extraction pipeline that processes detected symbols to extract associated text labels and identifiers.
+
+### Text Extraction Features
+
+| Component               | Technology                | Purpose                                      |
+|-------------------------|---------------------------|----------------------------------------------|
+| **Hybrid Text Extraction** | PaddleOCR + PyMuPDF    | Combines OCR and direct PDF text extraction  |
+| **PLC Pattern Recognition** | Regex + Priority System | Identifies PLC-specific text patterns        |
+| **Symbol-Text Association** | Spatial Analysis       | Links text to nearby detected symbols        |
+| **Smart Deduplication**     | Overlap Detection      | Removes duplicate text from different sources |
+
+### Text Extraction Usage
+
+**Run text extraction on existing detection results:**
+```bash
+python src/ocr/run_text_extraction.py
+```
+
+**Run complete pipeline with text extraction:**
+```bash
+python src/detection/run_complete_pipeline_with_text.py --epochs 10
+```
+
+**Custom text extraction parameters:**
+```bash
+python src/ocr/run_text_extraction.py --confidence 0.8 --lang en
+```
+
+**List available detection files:**
+```bash
+python src/ocr/run_text_extraction.py --list-files
+```
+
+### Text Extraction Configuration
+
+#### OCR Parameters
+- **Confidence Threshold**: 0.7 (minimum OCR confidence)
+- **Language**: English (configurable)
+- **Engine**: PaddleOCR PP-OCRv4
+
+#### PLC Pattern Recognition
+The system recognizes these PLC-specific patterns (by priority):
+1. **Input addresses**: I0.1, I1.2, etc.
+2. **Output addresses**: Q0.1, Q2.3, etc.
+3. **Memory addresses**: M0.1, M1.2, etc.
+4. **Timer addresses**: T1, T2, etc.
+5. **Counter addresses**: C1, C2, etc.
+6. **Function blocks**: FB1, FB2, etc.
+7. **Data blocks**: DB1, DB2, etc.
+8. **Analog I/O**: AI1, AO2, etc.
+9. **Variable names**: MOTOR_START, VALVE_OPEN, etc.
+
+### Text Extraction Output
+
+For each processed PDF, the system generates:
+- `{pdf_name}_text_extraction.json`: Extracted text with coordinates and metadata
+- `text_extraction_summary.json`: Overall extraction statistics
+- `complete_pipeline_summary.json`: Combined detection and text extraction metrics
+
+### Text Extraction Pipeline Architecture
+
+```
+Detection Results → Hybrid Text Extraction → PLC Pattern Recognition → Symbol Association → Structured Output
+                    ↓                        ↓                         ↓                    ↓
+                    PyMuPDF (PDF text)       Regex Matching           Spatial Analysis     JSON Results
+                    PaddleOCR (Image text)   Priority Scoring         Distance Calculation  Statistics
+```
+
 ## Next Steps
 
-After completing the detection stage:
-1. Review results in `../plc-data/processed/`
-2. Check `pipeline_summary.json` for performance metrics
-3. Proceed to OCR and text extraction stage
+After completing the detection and text extraction stages:
+1. Review detection results in `../plc-data/processed/detdiagrams/`
+2. Review text extraction results in `../plc-data/processed/text_extraction/`
+3. Check `complete_pipeline_summary.json` for comprehensive metrics
 4. Continue with data structuring using LayoutLM
 5. Apply verification and validation rules
+
+## Testing
+
+**Test the text extraction pipeline:**
+```bash
+python tests/test_text_extraction.py
+```
+
+**Validate complete setup:**
+```bash
+python tests/validate_setup.py
+```
 
 ## Contributing
 

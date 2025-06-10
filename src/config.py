@@ -154,6 +154,75 @@ class Config:
         else:
             return Path(self.config['paths']['models']) / 'custom' / model_name
     
+    def discover_available_models(self, model_type: str = 'pretrained') -> list:
+        """Discover all available models of a given type."""
+        models_dir = Path(self.config['paths']['models']) / model_type
+        
+        if not models_dir.exists():
+            return []
+        
+        # Look for .pt files
+        model_files = list(models_dir.glob("*.pt"))
+        return [model.name for model in model_files]
+    
+    def find_best_available_model(self, preferred_models: list = None) -> tuple:
+        """
+        Find the best available model from a preference list.
+        Returns (model_name, model_type) or (None, None) if none found.
+        """
+        if preferred_models is None:
+            # Default preference order: medium -> small -> nano -> large -> extra large
+            preferred_models = ['yolo11m.pt', 'yolo11s.pt', 'yolo11n.pt', 'yolo11l.pt', 'yolo11x.pt']
+        
+        # Check pretrained models first
+        available_pretrained = self.discover_available_models('pretrained')
+        for model in preferred_models:
+            if model in available_pretrained:
+                return model, 'pretrained'
+        
+        # Check custom models
+        available_custom = self.discover_available_models('custom')
+        for model in available_custom:
+            return model, 'custom'
+        
+        # Check if any pretrained models exist (even if not in preference list)
+        if available_pretrained:
+            return available_pretrained[0], 'pretrained'
+        
+        return None, None
+    
+    def get_model_path_with_fallback(self, model_name: str = None, model_type: str = 'pretrained') -> tuple:
+        """
+        Get model path with intelligent fallback.
+        Returns (path, actual_model_name, actual_model_type, was_fallback)
+        """
+        # If specific model requested, try it first
+        if model_name:
+            model_path = self.get_model_path(model_name, model_type)
+            if model_path.exists():
+                return model_path, model_name, model_type, False
+            
+            print(f"Warning: Requested model {model_name} not found at {model_path}")
+        
+        # Try to find best available model
+        fallback_model, fallback_type = self.find_best_available_model()
+        
+        if fallback_model:
+            fallback_path = self.get_model_path(fallback_model, fallback_type)
+            print(f"Using fallback model: {fallback_model} ({fallback_type})")
+            return fallback_path, fallback_model, fallback_type, True
+        
+        # No models found
+        available_pretrained = self.discover_available_models('pretrained')
+        available_custom = self.discover_available_models('custom')
+        
+        error_msg = f"No YOLO models found!\n"
+        error_msg += f"Checked pretrained: {self.config['paths']['models']}/pretrained/ (found: {available_pretrained})\n"
+        error_msg += f"Checked custom: {self.config['paths']['models']}/custom/ (found: {available_custom})\n"
+        error_msg += f"Please download models using: python setup/setup.py --download-models"
+        
+        raise FileNotFoundError(error_msg)
+    
     def get_run_path(self, run_type: str) -> Path:
         """Get path for experiment runs."""
         return Path(self.config['paths']['runs']) / run_type

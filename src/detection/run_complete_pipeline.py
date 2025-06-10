@@ -9,17 +9,18 @@ import json
 import argparse
 from pathlib import Path
 import subprocess
+import torch
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
 
-from src.detection.yolo11_train import train_yolo11, validate_dataset
+from src.detection.yolo11_train import train_yolo11, validate_dataset, get_best_device
 from src.detection.detect_pipeline import PLCDetectionPipeline
 from src.config import get_config
 
 class CompletePipelineRunner:
-    def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), overlap=500):
+    def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), overlap=500, model_name=None, device=None):
         """
         Initialize the complete pipeline runner
         
@@ -28,11 +29,15 @@ class CompletePipelineRunner:
             confidence_threshold: Detection confidence threshold
             snippet_size: Size of image snippets for PDF processing
             overlap: Overlap between snippets
+            model_name: YOLO model to use (None for auto-detection)
+            device: Device to use for training ('auto', 'cpu', '0', '1', etc.)
         """
         self.epochs = epochs
         self.confidence_threshold = confidence_threshold
         self.snippet_size = snippet_size
         self.overlap = overlap
+        self.model_name = model_name
+        self.device = device
         self.project_root = Path(__file__).resolve().parent.parent.parent
         
         # Get configuration
@@ -113,10 +118,34 @@ class CompletePipelineRunner:
         
         print(f"Found {len(pdf_files)} PDF files to process")
         
-        # Check model files using config
-        model_file = self.config.get_model_path('yolo11m.pt', 'pretrained')
-        if not model_file.exists():
-            print(f"Error: YOLO11m model not found: {model_file}")
+        # Check model availability using new fallback system
+        try:
+            model_path, model_name, model_type, was_fallback = self.config.get_model_path_with_fallback(self.model_name)
+            if was_fallback:
+                print(f"Using fallback model: {model_name} ({model_type})")
+            else:
+                print(f"Using requested model: {model_name} ({model_type})")
+            
+            # Store the resolved model info for training
+            self.resolved_model_name = model_name
+            self.resolved_model_type = model_type
+            
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+            
+            # Show available models to help user
+            available_pretrained = self.config.discover_available_models('pretrained')
+            available_custom = self.config.discover_available_models('custom')
+            
+            if available_pretrained or available_custom:
+                print("\nAvailable models:")
+                if available_pretrained:
+                    print(f"  Pretrained: {', '.join(available_pretrained)}")
+                if available_custom:
+                    print(f"  Custom: {', '.join(available_custom)}")
+                print("\nUse --model <model_name> to specify a model, or download models with:")
+                print("  python setup/setup.py --download-models")
+            
             return False
         
         # Check configuration using config
@@ -142,15 +171,26 @@ class CompletePipelineRunner:
         import importlib.util
         from ultralytics import YOLO
         
-        # Get paths using config
-        model_path = self.config.get_model_path('yolo11m.pt', 'pretrained')
+        # Use the resolved model from validation
+        model_path = self.config.get_model_path(self.resolved_model_name, self.resolved_model_type)
         config_path = self.config.data_yaml_path
         
-        print(f"Loading YOLO11m model from: {model_path}")
+        print(f"Loading {self.resolved_model_name} model from: {model_path}")
         print(f"Using dataset config: {config_path}")
         
         # Load model
         model = YOLO(str(model_path))
+        
+        # Determine device to use (same logic as yolo11_train.py)
+        if self.device is None:
+            device_to_use = get_best_device()
+            print(f"Auto-detected device: {device_to_use} (CUDA available: {torch.cuda.is_available()})")
+        elif self.device == 'auto':
+            device_to_use = get_best_device()
+            print(f"Auto-detected device: {device_to_use} (CUDA available: {torch.cuda.is_available()})")
+        else:
+            device_to_use = self.device
+            print(f"Using specified device: {device_to_use}")
         
         # Train with custom epochs
         training_start = time.time()
@@ -165,7 +205,7 @@ class CompletePipelineRunner:
             save=True,
             save_period=max(1, self.epochs // 5),  # Save checkpoints
             patience=max(10, self.epochs // 2),    # Early stopping
-            device='auto',
+            device=device_to_use,
             workers=8,
             verbose=True
         )
@@ -193,12 +233,24 @@ class CompletePipelineRunner:
         return trained_model_path
     
     def _run_detection_pipeline(self, model_path, use_parallel=False, batch_size=32, num_workers=4, 
-                               skip_pdf_conversion=False, use_unified=False, streaming_mode=False):
+                               skip_pdf_conversion=False, use_unified=False, streaming_mode=False,
+                               use_gpu_optimized=False):
         """Run the complete detection pipeline using the trained model"""
         
         print(f"Running detection pipeline with model: {model_path}")
         
-        if use_unified:
+        if use_gpu_optimized:
+            print("Using optimized GPU pipeline with native YOLO batch processing...")
+            from src.detection.detect_pipeline_gpu_optimized_fixed import OptimizedGPUPipeline
+            
+            # Initialize optimized GPU pipeline
+            pipeline = OptimizedGPUPipeline(
+                model_path=str(model_path),
+                confidence_threshold=self.confidence_threshold,
+                max_batch_size=batch_size,
+                num_workers=num_workers
+            )
+        elif use_unified:
             print("Using unified parallel pipeline with optimized resource usage...")
             from src.detection.unified_parallel_pipeline import UnifiedParallelPipeline
             
@@ -356,6 +408,10 @@ class CompletePipelineRunner:
 
 def main():
     parser = argparse.ArgumentParser(description='Run Complete PLC Detection Pipeline')
+    parser.add_argument('--model', '-m', default=None,
+                       help='YOLO model to use (e.g., yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt). If not specified, best available model will be auto-selected.')
+    parser.add_argument('--list-models', action='store_true',
+                       help='List all available models and exit')
     parser.add_argument('--epochs', '-e', type=int, default=10,
                        help='Number of training epochs (default: 10)')
     parser.add_argument('--conf', '-c', type=float, default=0.25,
@@ -376,10 +432,58 @@ def main():
                        help='Skip PDF to image conversion (use existing images)')
     parser.add_argument('--unified', action='store_true',
                        help='Use unified parallel pipeline (best performance)')
+    parser.add_argument('--gpu-optimized', action='store_true',
+                       help='Use optimized GPU pipeline with native YOLO batch processing (fastest)')
     parser.add_argument('--streaming', action='store_true',
                        help='Enable streaming mode for lower memory usage')
+    parser.add_argument('--device', '-d', default='auto',
+                       help='Device to use: auto, cpu, cuda, 0, 1, etc. (default: auto)')
     
     args = parser.parse_args()
+    
+    # Handle list-models command
+    if args.list_models:
+        config = get_config()
+        
+        print("Available YOLO Models:")
+        print("=" * 40)
+        
+        # List pretrained models
+        pretrained_models = config.discover_available_models('pretrained')
+        if pretrained_models:
+            print("\nPretrained Models:")
+            for model in sorted(pretrained_models):
+                model_path = config.get_model_path(model, 'pretrained')
+                size_mb = model_path.stat().st_size / (1024 * 1024) if model_path.exists() else 0
+                print(f"  {model:<15} ({size_mb:.1f} MB)")
+        else:
+            print("\nNo pretrained models found.")
+            print("Download models with: python setup/setup.py --download-models")
+        
+        # List custom models
+        custom_models = config.discover_available_models('custom')
+        if custom_models:
+            print("\nCustom/Trained Models:")
+            for model in sorted(custom_models):
+                model_path = config.get_model_path(model, 'custom')
+                size_mb = model_path.stat().st_size / (1024 * 1024) if model_path.exists() else 0
+                print(f"  {model:<15} ({size_mb:.1f} MB)")
+        
+        # Show recommended model
+        try:
+            best_model, best_type = config.find_best_available_model()
+            if best_model:
+                print(f"\nRecommended (auto-selected): {best_model} ({best_type})")
+        except:
+            pass
+        
+        print("\nUsage examples:")
+        print("  python src/detection/run_complete_pipeline.py --model yolo11n.pt --epochs 10 --device 0")
+        print("  python src/detection/run_complete_pipeline.py --model yolo11m.pt --parallel --device auto")
+        print("  python src/detection/run_complete_pipeline.py --device cpu  # CPU-only training")
+        print("  python src/detection/run_complete_pipeline.py  # Uses auto-selected model and device")
+        
+        return 0
     
     try:
         # Initialize pipeline runner
@@ -387,7 +491,9 @@ def main():
             epochs=args.epochs,
             confidence_threshold=args.conf,
             snippet_size=tuple(args.snippet_size),
-            overlap=args.overlap
+            overlap=args.overlap,
+            model_name=args.model,
+            device=args.device
         )
         
         if args.skip_training:
@@ -409,6 +515,7 @@ def main():
                             num_workers=args.workers,
                             skip_pdf_conversion=args.skip_pdf_conversion,
                             use_unified=args.unified,
+                            use_gpu_optimized=args.gpu_optimized,
                             streaming_mode=args.streaming
                         )
                         runner._generate_summary_report()
