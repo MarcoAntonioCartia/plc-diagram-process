@@ -255,17 +255,28 @@ class GPUDetector:
     def _determine_pytorch_version(self, cuda_version: str) -> str:
         """Determine the best PyTorch version for the detected CUDA version"""
         try:
-            major, minor = map(int, cuda_version.split('.'))
-            cuda_numeric = major + minor / 10
+            # Handle CUDA version strings like "12.8", "12.1", "11.8", etc.
+            version_parts = cuda_version.split('.')
+            major = int(version_parts[0])
+            minor = int(version_parts[1]) if len(version_parts) > 1 else 0
             
-            if cuda_numeric >= 12.1:
-                return "cu121"
-            elif cuda_numeric >= 11.8:
-                return "cu118"
-            elif cuda_numeric >= 11.7:
-                return "cu117"
+            # Enhanced CUDA version mapping for PyTorch
+            if major == 12:
+                if minor >= 8:  # CUDA 12.8+
+                    return "cu128"
+                elif minor >= 1:  # CUDA 12.1-12.7
+                    return "cu121"
+                else:  # CUDA 12.0
+                    return "cu121"
+            elif major == 11:
+                if minor >= 8:  # CUDA 11.8+
+                    return "cu118"
+                elif minor >= 7:  # CUDA 11.7
+                    return "cu117"
+                else:  # CUDA 11.0-11.6
+                    return "cu118"  # Use 11.8 as fallback
             else:
-                return "cpu"  # Very old CUDA, fallback to CPU
+                return "cpu"  # Very old or unsupported CUDA
         except:
             return "cpu"
     
@@ -273,7 +284,9 @@ class GPUDetector:
         """Get the appropriate PyTorch index URL for the CUDA version"""
         pytorch_version = self._determine_pytorch_version(cuda_version)
         
-        if pytorch_version == "cu121":
+        if pytorch_version == "cu128":
+            return "https://download.pytorch.org/whl/cu128"
+        elif pytorch_version == "cu121":
             return "https://download.pytorch.org/whl/cu121"
         elif pytorch_version == "cu118":
             return "https://download.pytorch.org/whl/cu118"

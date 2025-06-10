@@ -1,6 +1,23 @@
 #!/bin/bash
-echo "Activating PLC Diagram Processor environment..."
-source "/mnt/d/MarMe/github/0.1/plc-diagram-processor/yolovenv/bin/activate"
-echo "Virtual environment activated: /mnt/d/MarMe/github/0.1/plc-diagram-processor/yolovenv"
-echo "Python executable: /mnt/d/MarMe/github/0.1/plc-diagram-processor/yolovenv/bin/python"
-echo "Current directory: $(pwd)"
+
+echo
+echo "==============================================="
+echo "   PLC Diagram Processor Environment"
+echo "==============================================="
+echo
+echo "Activating virtual environment..."
+source "D:\MarMe\github\0.3\plc-diagram-processor\yolovenv\Scripts\activate.bat"
+echo
+echo "Environment activated!"
+echo "Data directory: D:\MarMe\github\0.3\plc-data"
+echo "Python: D:\MarMe\github\0.3\plc-diagram-processor\yolovenv\Scripts\python.exe"
+echo
+echo "Available commands:"
+echo "  python src/detection/run_complete_pipeline.py"
+echo "  python src/ocr/run_text_extraction.py"
+echo "  python scripts/manage_datasets.py"
+echo "  python scripts/manage_models.py"
+echo
+
+# Start interactive shell
+exec "$SHELL"
