@@ -773,40 +773,71 @@ wsl -e {tool} %*
         return True
 
     def _upgrade_pytorch_to_gpu(self, gpu_info: Dict) -> bool:
-        """Upgrade PyTorch to GPU version"""
+        """Upgrade PyTorch to GPU version with enhanced CUDA detection"""
         print("\nUpgrading PyTorch to GPU version...")
         
-        # Determine CUDA version for PyTorch
+        # Enhanced CUDA version detection
         cuda_version = gpu_info.get("cuda_version", "11.8")
         
-        if cuda_version.startswith("12"):
+        # Determine the correct PyTorch CUDA index
+        if cuda_version.startswith("12.8") or cuda_version.startswith("12.9"):
+            index_url = "https://download.pytorch.org/whl/cu128"
+            cuda_suffix = "cu128"
+            print(f"  Using CUDA 12.8+ PyTorch (cu128) for CUDA {cuda_version}")
+        elif cuda_version.startswith("12.1") or cuda_version.startswith("12.2") or cuda_version.startswith("12.3") or cuda_version.startswith("12.4"):
             index_url = "https://download.pytorch.org/whl/cu121"
-            print("  Using CUDA 12.x PyTorch")
-        else:
+            cuda_suffix = "cu121"
+            print(f"  Using CUDA 12.1-12.4 PyTorch (cu121) for CUDA {cuda_version}")
+        elif cuda_version.startswith("12"):
+            # Default for other CUDA 12.x versions
+            index_url = "https://download.pytorch.org/whl/cu121"
+            cuda_suffix = "cu121"
+            print(f"  Using CUDA 12.x PyTorch (cu121) for CUDA {cuda_version}")
+        elif cuda_version.startswith("11.8") or cuda_version.startswith("11.9"):
             index_url = "https://download.pytorch.org/whl/cu118"
-            print("  Using CUDA 11.x PyTorch")
+            cuda_suffix = "cu118"
+            print(f"  Using CUDA 11.8+ PyTorch (cu118) for CUDA {cuda_version}")
+        else:
+            # Default fallback
+            index_url = "https://download.pytorch.org/whl/cu118"
+            cuda_suffix = "cu118"
+            print(f"  Using default CUDA 11.8 PyTorch (cu118) for CUDA {cuda_version}")
         
         try:
+            # Use wheel-only installation to avoid compilation issues
+            print(f"  Installing PyTorch with {cuda_suffix} support...")
             subprocess.run([
-                str(self.venv_pip), "install", "--upgrade", "torch", "torchvision", "torchaudio",
-                "--index-url", index_url
+                str(self.venv_pip), "install", "--upgrade", 
+                "torch", "torchvision", "torchaudio",
+                "--index-url", index_url,
+                "--only-binary=all"  # Force wheel-only installation
             ], check=True, timeout=1800)
             
             print("✓ PyTorch GPU version installed successfully")
             
-            # Verify GPU availability
+            # Verify GPU availability and show detailed info
             try:
                 result = subprocess.run([
                     str(self.venv_python), "-c", 
-                    "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'Device count: {torch.cuda.device_count()}')"
+                    """
+import torch
+print(f'CUDA available: {torch.cuda.is_available()}')
+print(f'Device count: {torch.cuda.device_count()}')
+if torch.cuda.is_available():
+    print(f'Current device: {torch.cuda.current_device()}')
+    print(f'Device name: {torch.cuda.get_device_name(0)}')
+    print(f'PyTorch version: {torch.__version__}')
+                    """
                 ], capture_output=True, text=True, timeout=30)
                 
                 if result.returncode == 0:
-                    print("  GPU verification:")
+                    print("  🎯 GPU verification successful:")
                     for line in result.stdout.strip().split('\n'):
-                        print(f"    {line}")
+                        if line.strip():
+                            print(f"    {line}")
                 else:
                     print("  ⚠ Could not verify GPU functionality")
+                    print(f"    Error: {result.stderr}")
             except Exception as e:
                 print(f"  ⚠ GPU verification failed: {e}")
             
@@ -823,16 +854,23 @@ wsl -e {tool} %*
 
     # === PACKAGE INSTALLATION (ROBUST APPROACH FROM OLD SETUP) ===
     def parse_requirements(self, requirements_file: Path) -> List[str]:
-        """Parse requirements.txt and extract package names"""
+        """Parse requirements.txt and extract clean package specifications"""
         packages = []
         try:
             with open(requirements_file, 'r') as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#'):
-                        # Extract package name (before ==, >=, <=, etc.)
-                        package_name = line.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0]
-                        packages.append(line)  # Keep full specification
+                        # Remove inline comments (everything after #)
+                        if '#' in line:
+                            line = line.split('#')[0].strip()
+                        
+                        # Skip empty lines after comment removal
+                        if not line:
+                            continue
+                        
+                        # Add clean package specification
+                        packages.append(line)
         except Exception as e:
             print(f"Warning: Could not parse requirements file: {e}")
         return packages
@@ -869,7 +907,7 @@ wsl -e {tool} %*
         }
 
     def install_single_package(self, package: str) -> Tuple[str, bool, str]:
-        """Install a single package with timeout"""
+        """Install a single package using simple pip install (matches manual installation)"""
         base_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0]
         
         # Determine timeout based on package
@@ -880,18 +918,26 @@ wsl -e {tool} %*
         else:
             timeout = 300   # 5 minutes
         
+        if self.dry_run:
+            print(f"  DRY RUN: Would install {package}")
+            return package, True, ""
+        
+        # Simple pip install - exactly like manual installation
         try:
-            if self.dry_run:
-                print(f"  DRY RUN: Would install {package}")
-                return package, True, ""
-            
-            result = subprocess.run(
-                [str(self.venv_pip), 'install', package, '--no-cache-dir'],
-                capture_output=True, text=True, timeout=timeout
-            )
+            print(f"  Installing {base_name}...")
+            result = subprocess.run([
+                str(self.venv_pip), 'install', package
+            ], capture_output=True, text=True, timeout=timeout)
             
             success = result.returncode == 0
             error_msg = result.stderr.strip() if result.stderr else ""
+            
+            if success:
+                print(f"  ✓ {base_name} installed successfully")
+            else:
+                print(f"  ✗ {base_name} installation failed")
+                if error_msg:
+                    print(f"    Error: {error_msg[:200]}...")  # Show first 200 chars
             
             return package, success, error_msg
             
@@ -1006,8 +1052,9 @@ wsl -e {tool} %*
         return success_rate >= 0.75
 
     def _bulk_install_failed_packages(self, failed_packages: List[str]) -> bool:
-        """Attempt bulk installation of failed packages"""
+        """Attempt bulk installation of failed packages using simple pip install"""
         print("\nAttempting bulk installation of failed packages...")
+        print("Using simple pip install (same as manual installation)...")
         
         try:
             # Create temporary requirements file
@@ -1016,11 +1063,11 @@ wsl -e {tool} %*
                 for pkg in failed_packages:
                     f.write(f"{pkg}\n")
             
-            # Try bulk installation with extended timeout
-            result = subprocess.run(
-                [str(self.venv_pip), 'install', '-r', str(temp_req_file), '--verbose'],
-                text=True, timeout=3600  # 1 hour timeout
-            )
+            # Simple bulk installation - exactly like manual "pip install -r requirements.txt"
+            print("  Installing from requirements file...")
+            result = subprocess.run([
+                str(self.venv_pip), 'install', '-r', str(temp_req_file)
+            ], text=True, timeout=3600)  # 1 hour timeout
             
             # Clean up
             temp_req_file.unlink()
@@ -1030,13 +1077,27 @@ wsl -e {tool} %*
                 return True
             else:
                 print("✗ Bulk installation failed")
+                print("\n Manual installation suggestions:")
+                print("1. Activate the virtual environment:")
+                print(f"   {self.venv_activate}")
+                print("2. Try installing packages individually:")
+                for pkg in failed_packages[:5]:  # Show first 5 as examples
+                    print(f"   pip install {pkg}")
+                if len(failed_packages) > 5:
+                    print(f"   ... and {len(failed_packages) - 5} more packages")
+                print("3. Or try the full requirements file:")
+                print("   pip install -r requirements.txt")
                 return False
                 
         except subprocess.TimeoutExpired:
-            print("⚠ Bulk installation timed out")
+            print("⚠ Bulk installation timed out after 1 hour")
+            if temp_req_file.exists():
+                temp_req_file.unlink()
             return False
         except Exception as e:
             print(f"✗ Bulk installation error: {e}")
+            if temp_req_file.exists():
+                temp_req_file.unlink()
             return False
 
     def verify_installation(self) -> bool:
