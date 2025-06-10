@@ -5,13 +5,62 @@ This directory contains all setup-related files and utilities for the PLC Diagra
 ## Files in this Directory
 
 ### Core Setup
-- **`setup.py`** - Main setup script for complete project installation
+- **`setup.py`** - **NEW UNIFIED SETUP** - Main setup script with enhanced features and robust error handling
 - **`config/download_config.yaml`** - Configuration for data and model downloads
+
+### Enhanced Setup Modules
+- **`gpu_detector.py`** - Automatic GPU and CUDA detection
+- **`build_tools_installer.py`** - Visual Studio Build Tools installation (Windows)
+- **`package_installer.py`** - Robust package installation with fallback strategies
 
 ### Management Scripts
 - **`manage_datasets.py`** - Dataset download and management utility
 - **`manage_models.py`** - YOLO model download and management utility
 - **`validate_setup.py`** - (Moved to tests/ directory)
+
+### Legacy Files
+- **`legacy/`** - Contains previous setup versions for reference
+  - `setup_original.py` - Original setup script (proven WSL/poppler logic)
+  - `enhanced_setup_original.py` - Enhanced setup with modular architecture
+
+## Unified Setup Features
+
+The new **unified setup** (`setup.py`) combines the best features from both previous setups while fixing critical issues:
+
+### 🔧 **Key Improvements**
+- **CPU-First PyTorch**: Always installs CPU version first, offers GPU upgrade (prevents GPU detection failures)
+- **Proven WSL Logic**: Uses battle-tested WSL poppler installation from original setup
+- **Non-Blocking Errors**: Setup continues even if optional components fail
+- **Robust Package Installation**: Multiple fallback strategies with proper timeouts
+- **Enhanced Progress Reporting**: Clear progress bars and status updates
+
+### 🚀 **Setup Process**
+1. **System Detection** (non-blocking) - GPU, build tools, WSL availability
+2. **System Dependencies** - WSL + Poppler (Windows), package managers (Linux/macOS)
+3. **Build Environment** (optional) - Visual Studio Build Tools installation
+4. **Virtual Environment** - Creates/recreates Python environment
+5. **PyTorch Installation** - CPU-first approach with optional GPU upgrade
+6. **Package Installation** - Heavy packages (sequential) + light packages (parallel)
+7. **Data Setup** - Creates directory structure
+8. **Verification** - Tests key package imports
+
+### 💡 **Error Handling Philosophy**
+- **GPU Detection Fails**: Falls back to CPU-only PyTorch
+- **Build Tools Missing**: Warns user but continues setup
+- **WSL Issues**: Provides manual installation guidance
+- **Package Failures**: Attempts bulk installation, continues if 75%+ succeed
+
+### ⚙️ **Advanced Options**
+```bash
+# Custom data directory
+python setup/setup.py --data-root /path/to/data
+
+# Dry run (see what would be done)
+python setup/setup.py --dry-run
+
+# Adjust parallel installation jobs
+python setup/setup.py --parallel-jobs 8
+```
 
 ## Quick Start
 

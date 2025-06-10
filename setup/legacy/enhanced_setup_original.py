@@ -63,10 +63,10 @@ class EnhancedPLCSetup:
         current_version = sys.version_info[:2]
         
         if current_version < min_version:
-            print(f"✗ Python {min_version[0]}.{min_version[1]}+ required, but {current_version[0]}.{current_version[1]} found")
+            print(f":( Python {min_version[0]}.{min_version[1]}+ required, but {current_version[0]}.{current_version[1]} found")
             return False
         
-        print(f"✓ Python {current_version[0]}.{current_version[1]} detected")
+        print(f":) Python {current_version[0]}.{current_version[1]} detected")
         return True
     
     def detect_system_capabilities(self) -> Dict:
@@ -94,7 +94,7 @@ class EnhancedPLCSetup:
             print("Build tools installation required...")
             
             if not self.build_tools_installer.install_build_tools():
-                print("⚠ Build tools installation failed")
+                print(":( Build tools installation failed")
                 print("You may encounter compilation issues with some packages")
                 
                 # Ask user if they want to continue
@@ -688,14 +688,14 @@ wsl -e {tool} %*
                 print("✓ Fallback GPU detection successful!")
                 gpu_info.update(fallback_gpu_info)
             else:
-                print("⚠ Fallback GPU detection also failed")
+                print(":( Fallback GPU detection also failed")
         
         # Determine PyTorch installation type
         has_gpu = gpu_info.get("has_nvidia_gpu", False)
         has_cuda = gpu_info.get("has_cuda", False)
         
         if has_gpu and has_cuda:
-            print("🎯 NVIDIA GPU with CUDA detected!")
+            print(":) NVIDIA GPU with CUDA detected!")
             if gpu_info.get("gpu_models"):
                 print(f"   GPU: {gpu_info['gpu_models'][0]}")
             if gpu_info.get("cuda_version"):
@@ -706,7 +706,7 @@ wsl -e {tool} %*
             print(f"   {description}")
             
         elif has_wsl_gpu:
-            print("🔄 Using WSL GPU information for PyTorch selection")
+            print(":) Using WSL GPU information for PyTorch selection")
             print(f"   WSL GPU: {self.wsl_gpu_info.get('gpu_name', 'Unknown')}")
             
             # Use CUDA version if available
@@ -726,7 +726,7 @@ wsl -e {tool} %*
                 print("   Installing CPU-only PyTorch (CUDA not detected in WSL)")
                 
         else:
-            print("⚠ No CUDA-capable GPU detected")
+            print(":( No CUDA-capable GPU detected")
             print("PyTorch will be installed with CPU-only support")
             
             response = input("Continue with CPU-only PyTorch? (y/n): ")
@@ -753,13 +753,13 @@ wsl -e {tool} %*
                     ], capture_output=True, text=True, timeout=30)
                     
                     if result.returncode == 0:
-                        print("🔍 PyTorch CUDA verification:")
+                        print(":) PyTorch CUDA verification:")
                         for line in result.stdout.strip().split('\n'):
                             print(f"   {line}")
                     else:
-                        print("⚠ Could not verify PyTorch CUDA status")
+                        print(":( Could not verify PyTorch CUDA status")
                 except Exception as e:
-                    print(f"⚠ PyTorch verification failed: {e}")
+                    print(f":( PyTorch verification failed: {e}")
             
             return True
         except subprocess.CalledProcessError as e:
@@ -800,7 +800,7 @@ wsl -e {tool} %*
         if success:
             print("✓ All packages installed successfully")
         else:
-            print("⚠ Some packages failed to install")
+            print(":( Some packages failed to install")
             print("Check the output above for details")
         
         return success
@@ -831,14 +831,14 @@ wsl -e {tool} %*
                     print(f"✗ {description} failed to import")
                     failed_packages.append(description)
             except subprocess.TimeoutExpired:
-                print(f"⚠ {description} import test timed out")
+                print(f":( {description} import test timed out")
                 failed_packages.append(description)
             except Exception as e:
                 print(f"✗ {description} test failed: {e}")
                 failed_packages.append(description)
         
         if failed_packages:
-            print(f"\n⚠ {len(failed_packages)} packages failed verification:")
+            print(f"\n:( {len(failed_packages)} packages failed verification:")
             for pkg in failed_packages:
                 print(f"  - {pkg}")
             return False
