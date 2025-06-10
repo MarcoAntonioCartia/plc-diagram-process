@@ -9,17 +9,18 @@ import json
 import argparse
 from pathlib import Path
 import subprocess
+import torch
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
 
-from src.detection.yolo11_train import train_yolo11, validate_dataset
+from src.detection.yolo11_train import train_yolo11, validate_dataset, get_best_device
 from src.detection.detect_pipeline import PLCDetectionPipeline
 from src.config import get_config
 
 class CompletePipelineRunner:
-    def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), overlap=500, model_name=None):
+    def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), overlap=500, model_name=None, device=None):
         """
         Initialize the complete pipeline runner
         
@@ -29,12 +30,14 @@ class CompletePipelineRunner:
             snippet_size: Size of image snippets for PDF processing
             overlap: Overlap between snippets
             model_name: YOLO model to use (None for auto-detection)
+            device: Device to use for training ('auto', 'cpu', '0', '1', etc.)
         """
         self.epochs = epochs
         self.confidence_threshold = confidence_threshold
         self.snippet_size = snippet_size
         self.overlap = overlap
         self.model_name = model_name
+        self.device = device
         self.project_root = Path(__file__).resolve().parent.parent.parent
         
         # Get configuration
@@ -178,6 +181,17 @@ class CompletePipelineRunner:
         # Load model
         model = YOLO(str(model_path))
         
+        # Determine device to use (same logic as yolo11_train.py)
+        if self.device is None:
+            device_to_use = get_best_device()
+            print(f"Auto-detected device: {device_to_use} (CUDA available: {torch.cuda.is_available()})")
+        elif self.device == 'auto':
+            device_to_use = get_best_device()
+            print(f"Auto-detected device: {device_to_use} (CUDA available: {torch.cuda.is_available()})")
+        else:
+            device_to_use = self.device
+            print(f"Using specified device: {device_to_use}")
+        
         # Train with custom epochs
         training_start = time.time()
         
@@ -191,7 +205,7 @@ class CompletePipelineRunner:
             save=True,
             save_period=max(1, self.epochs // 5),  # Save checkpoints
             patience=max(10, self.epochs // 2),    # Early stopping
-            device='auto',
+            device=device_to_use,
             workers=8,
             verbose=True
         )
@@ -422,6 +436,8 @@ def main():
                        help='Use optimized GPU pipeline with native YOLO batch processing (fastest)')
     parser.add_argument('--streaming', action='store_true',
                        help='Enable streaming mode for lower memory usage')
+    parser.add_argument('--device', '-d', default='auto',
+                       help='Device to use: auto, cpu, cuda, 0, 1, etc. (default: auto)')
     
     args = parser.parse_args()
     
@@ -462,9 +478,10 @@ def main():
             pass
         
         print("\nUsage examples:")
-        print("  python src/detection/run_complete_pipeline.py --model yolo11n.pt --epochs 10")
-        print("  python src/detection/run_complete_pipeline.py --model yolo11m.pt --parallel")
-        print("  python src/detection/run_complete_pipeline.py  # Uses auto-selected model")
+        print("  python src/detection/run_complete_pipeline.py --model yolo11n.pt --epochs 10 --device 0")
+        print("  python src/detection/run_complete_pipeline.py --model yolo11m.pt --parallel --device auto")
+        print("  python src/detection/run_complete_pipeline.py --device cpu  # CPU-only training")
+        print("  python src/detection/run_complete_pipeline.py  # Uses auto-selected model and device")
         
         return 0
     
@@ -475,7 +492,8 @@ def main():
             confidence_threshold=args.conf,
             snippet_size=tuple(args.snippet_size),
             overlap=args.overlap,
-            model_name=args.model
+            model_name=args.model,
+            device=args.device
         )
         
         if args.skip_training:
