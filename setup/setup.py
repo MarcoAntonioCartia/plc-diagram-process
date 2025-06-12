@@ -183,8 +183,8 @@ class UnifiedPLCSetup:
         return capabilities
 
     def setup_build_environment(self, capabilities: Dict) -> bool:
-        """Set up build environment if needed (non-blocking)"""
-        print("\n=== Build Environment Setup ===")
+        """Enhanced build environment setup with C++ and Rust support"""
+        print("\n=== Enhanced Build Environment Setup ===")
         
         if not self.build_tools_installer:
             print("⚠ Build tools installer not available, skipping...")
@@ -192,26 +192,54 @@ class UnifiedPLCSetup:
         
         build_tools_status = capabilities["build_tools_status"]
         
-        if build_tools_status["needs_installation"]:
-            print("Build tools installation recommended...")
+        # Install C++ build tools if needed
+        if build_tools_status.get("needs_installation", True):
+            print("C++ build tools installation recommended...")
             
             if not self.dry_run:
-                response = input("Install build tools automatically? (y/n/skip): ")
+                response = input("Install C++ build tools automatically? (y/n/skip): ")
                 if response.lower() == 'y':
                     try:
                         if self.build_tools_installer.install_build_tools():
-                            print("✓ Build tools installed successfully")
+                            print("✓ C++ build tools installed successfully")
+                            # Update capabilities after installation
+                            capabilities["build_tools_status"] = self.build_tools_installer.check_build_tools_status()
                         else:
-                            print("⚠ Build tools installation failed (non-critical)")
+                            print("⚠ C++ build tools installation failed")
                     except Exception as e:
-                        print(f"⚠ Build tools installation error (non-critical): {e}")
+                        print(f"⚠ C++ build tools installation error: {e}")
                 elif response.lower() == 'skip':
-                    print("Skipping build tools installation")
+                    print("Skipping C++ build tools installation")
                 else:
-                    print("Build tools installation declined")
+                    print("C++ build tools installation declined")
                     print("You may encounter compilation issues with some packages")
         else:
-            print("✓ Build tools already available")
+            print("✓ C++ build tools already available")
+        
+        # Check and install Rust/Cargo if needed
+        if build_tools_status.get("needs_rust_installation", True):
+            print("\nRust/Cargo installation recommended for some packages...")
+            
+            if not self.dry_run:
+                response = input("Install Rust/Cargo automatically? (y/n/skip): ")
+                if response.lower() == 'y':
+                    try:
+                        if self.build_tools_installer.install_rust_cargo():
+                            print("✓ Rust/Cargo installed successfully")
+                            # Update capabilities after installation
+                            rust_status = self.build_tools_installer._check_rust_cargo()
+                            capabilities["build_tools_status"].update(rust_status)
+                        else:
+                            print("⚠ Rust/Cargo installation failed")
+                    except Exception as e:
+                        print(f"⚠ Rust/Cargo installation error: {e}")
+                elif response.lower() == 'skip':
+                    print("Skipping Rust/Cargo installation")
+                else:
+                    print("Rust/Cargo installation declined")
+                    print("Some packages may fail to compile")
+        else:
+            print("✓ Rust/Cargo already available")
         
         return True
 
@@ -225,8 +253,8 @@ class UnifiedPLCSetup:
             return False
 
     def _check_wsl_gpu_support(self) -> Dict[str, Any]:
-        """Check if GPU is available in WSL for training (informational only)"""
-        print("\n=== Checking WSL GPU Support (Informational) ===")
+        """Check if GPU and CUDA are available in WSL (enhanced detection)"""
+        print("\n=== Checking WSL GPU Support (Enhanced Detection) ===")
         
         gpu_info = {
             'available': False,
@@ -235,6 +263,8 @@ class UnifiedPLCSetup:
             'driver_version': None,
             'cuda_version': None,
             'gpu_name': None,
+            'gpu_memory': None,
+            'compute_capability': None,
             'issues': []
         }
         
@@ -246,7 +276,7 @@ class UnifiedPLCSetup:
         print("Checking for NVIDIA GPU in WSL...")
         try:
             result = subprocess.run(
-                ['wsl', '-e', 'bash', '-c', 'nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null'],
+                ['wsl', '-e', 'bash', '-c', 'nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null'],
                 capture_output=True, text=True, timeout=10
             )
             
@@ -254,13 +284,18 @@ class UnifiedPLCSetup:
                 gpu_info['nvidia_smi'] = True
                 output_lines = result.stdout.strip().split('\n')
                 if output_lines:
-                    parts = output_lines[0].split(', ')
-                    if len(parts) >= 2:
-                        gpu_info['gpu_name'] = parts[0].strip()
-                        gpu_info['driver_version'] = parts[1].strip()
+                    parts = [p.strip() for p in output_lines[0].split(',')]
+                    if len(parts) >= 3:
+                        gpu_info['gpu_name'] = parts[0]
+                        gpu_info['driver_version'] = parts[1]
+                        try:
+                            gpu_info['gpu_memory'] = int(float(parts[2].replace(' MiB', '')) / 1024)  # Convert to GB
+                        except:
+                            gpu_info['gpu_memory'] = 0
                         gpu_info['available'] = True
                         print(f"✓ Found GPU: {gpu_info['gpu_name']}")
                         print(f"  Driver version: {gpu_info['driver_version']}")
+                        print(f"  Memory: {gpu_info['gpu_memory']}GB")
             else:
                 gpu_info['issues'].append("nvidia-smi not found in WSL")
                 print("ℹ NVIDIA GPU not detected in WSL")
@@ -270,6 +305,56 @@ class UnifiedPLCSetup:
         except Exception as e:
             gpu_info['issues'].append(f"Error checking GPU: {str(e)}")
             print(f"⚠ Error checking GPU: {e}")
+        
+        # Check for CUDA in WSL if GPU is available
+        if gpu_info['available']:
+            print("Checking for CUDA in WSL...")
+            try:
+                # Try nvidia-smi CUDA version detection FIRST (driver version - most reliable)
+                result = subprocess.run(
+                    ['wsl', '-e', 'bash', '-c', 'nvidia-smi | grep "CUDA Version" | sed "s/.*CUDA Version: \\([0-9]\\+\\.[0-9]\\+\\).*/\\1/" 2>/dev/null'],
+                    capture_output=True, text=True, timeout=5
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    cuda_version = result.stdout.strip()
+                    gpu_info['cuda_version'] = cuda_version
+                    gpu_info['cuda_available'] = True
+                    print(f"✓ CUDA {cuda_version} detected in WSL (via nvidia-smi - driver version)")
+                else:
+                    # Try nvcc --version as fallback (toolkit version)
+                    result = subprocess.run(
+                        ['wsl', '-e', 'bash', '-c', 'nvcc --version 2>/dev/null | grep "release" | sed "s/.*release \\([0-9]\\+\\.[0-9]\\+\\).*/\\1/"'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        cuda_version = result.stdout.strip()
+                        gpu_info['cuda_version'] = cuda_version
+                        gpu_info['cuda_available'] = True
+                        print(f"✓ CUDA {cuda_version} detected in WSL (via nvcc - toolkit version)")
+                    else:
+                        # Try version.txt as final fallback
+                        result = subprocess.run(
+                            ['wsl', '-e', 'bash', '-c', 'cat /usr/local/cuda/version.txt 2>/dev/null | grep "CUDA Version" | sed "s/.*CUDA Version \\([0-9]\\+\\.[0-9]\\+\\).*/\\1/"'],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        
+                        if result.returncode == 0 and result.stdout.strip():
+                            cuda_version = result.stdout.strip()
+                            gpu_info['cuda_version'] = cuda_version
+                            gpu_info['cuda_available'] = True
+                            print(f"✓ CUDA {cuda_version} detected in WSL (via version.txt)")
+                        else:
+                            gpu_info['issues'].append("CUDA not found in WSL")
+                            print("⚠ CUDA not detected in WSL")
+                            
+            except subprocess.TimeoutExpired:
+                gpu_info['issues'].append("CUDA check timed out")
+                print("⚠ CUDA check timed out")
+            except Exception as e:
+                gpu_info['issues'].append(f"Error checking CUDA: {str(e)}")
+                print(f"⚠ Error checking CUDA: {e}")
         
         return gpu_info
 
@@ -733,44 +818,200 @@ wsl -e {tool} %*
         
         return True
 
-    # === PYTORCH INSTALLATION (CPU-FIRST APPROACH) ===
-    def install_pytorch(self, capabilities: Dict) -> bool:
-        """Install PyTorch with CPU-first approach, GPU optional"""
-        print("\n=== PyTorch Installation (CPU-First Approach) ===")
+    # === PYTORCH INDEX VALIDATION ===
+    def _validate_pytorch_index(self, index_url: str) -> bool:
+        """Validate that PyTorch index URL is accessible"""
+        try:
+            import urllib.request
+            import urllib.error
+            
+            # Test if the index URL is accessible
+            request = urllib.request.Request(index_url, method='HEAD')
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status == 200
+        except (urllib.error.URLError, urllib.error.HTTPError, Exception):
+            return False
+
+    def _get_best_pytorch_index(self, cuda_version: str) -> Tuple[str, str]:
+        """Get the best available PyTorch index URL with fallback validation"""
+        print(f"  Finding best PyTorch index for CUDA {cuda_version}...")
         
-        # Always start with CPU version for reliability
-        print("Installing PyTorch CPU version first...")
+        # Define index options in priority order
+        index_options = []
+        
+        if cuda_version.startswith("12.8") or cuda_version.startswith("12.9"):
+            index_options = [
+                ("cu128", "https://download.pytorch.org/whl/cu128"),
+                ("cu121", "https://download.pytorch.org/whl/cu121"),
+                ("cu118", "https://download.pytorch.org/whl/cu118"),
+                ("cpu", "https://download.pytorch.org/whl/cpu")
+            ]
+        elif cuda_version.startswith("12.1") or cuda_version.startswith("12.2") or cuda_version.startswith("12.3") or cuda_version.startswith("12.4"):
+            index_options = [
+                ("cu121", "https://download.pytorch.org/whl/cu121"),
+                ("cu128", "https://download.pytorch.org/whl/cu128"),
+                ("cu118", "https://download.pytorch.org/whl/cu118"),
+                ("cpu", "https://download.pytorch.org/whl/cpu")
+            ]
+        elif cuda_version.startswith("12"):
+            index_options = [
+                ("cu121", "https://download.pytorch.org/whl/cu121"),
+                ("cu128", "https://download.pytorch.org/whl/cu128"),
+                ("cu118", "https://download.pytorch.org/whl/cu118"),
+                ("cpu", "https://download.pytorch.org/whl/cpu")
+            ]
+        elif cuda_version.startswith("11.8") or cuda_version.startswith("11.9"):
+            index_options = [
+                ("cu118", "https://download.pytorch.org/whl/cu118"),
+                ("cu121", "https://download.pytorch.org/whl/cu121"),
+                ("cpu", "https://download.pytorch.org/whl/cpu")
+            ]
+        else:
+            index_options = [
+                ("cu118", "https://download.pytorch.org/whl/cu118"),
+                ("cu121", "https://download.pytorch.org/whl/cu121"),
+                ("cpu", "https://download.pytorch.org/whl/cpu")
+            ]
+        
+        # Test each index URL until we find one that works
+        for cuda_suffix, index_url in index_options:
+            print(f"    Testing {cuda_suffix} index: {index_url}")
+            if self._validate_pytorch_index(index_url):
+                print(f"    ✓ {cuda_suffix} index is accessible")
+                return cuda_suffix, index_url
+            else:
+                print(f"    ✗ {cuda_suffix} index not accessible")
+        
+        # If all fail, return CPU as final fallback
+        print("    ⚠ All CUDA indexes failed, falling back to CPU")
+        return "cpu", "https://download.pytorch.org/whl/cpu"
+
+    # === PYTORCH INSTALLATION (DIRECT CUDA APPROACH) ===
+    def install_pytorch(self, capabilities: Dict) -> bool:
+        """Install PyTorch with direct CUDA detection and installation"""
+        print("\n=== PyTorch Installation (Direct CUDA Detection) ===")
+        
+        # Get GPU information for direct installation
+        gpu_info = capabilities.get("gpu_info", {})
+        
+        # Check if WSL CUDA info is available and use it as primary source
+        wsl_cuda_available = False
+        if hasattr(self, 'wsl_gpu_info') and self.wsl_gpu_info.get('cuda_available'):
+            wsl_cuda_available = True
+            cuda_version = self.wsl_gpu_info.get("cuda_version", "11.8")
+            gpu_model = self.wsl_gpu_info.get('gpu_name', 'Unknown GPU')
+            
+            print(f"  NVIDIA GPU detected (via WSL): {gpu_model}")
+            print(f"   CUDA version (via WSL): {cuda_version}")
+            print(f"   Using WSL CUDA detection as primary source")
+        elif gpu_info.get("has_nvidia_gpu") and gpu_info.get("has_cuda"):
+            # Fallback to main GPU detector
+            cuda_version = gpu_info.get("cuda_version", "11.8")
+            gpu_model = gpu_info.get('gpu_models', ['Unknown GPU'])[0]
+            
+            print(f"  NVIDIA GPU detected: {gpu_model}")
+            print(f"   CUDA version: {cuda_version}")
+        else:
+            # No CUDA detected - install CPU version
+            print("  No CUDA GPU detected - installing CPU version")
+            return self._install_pytorch_cpu_fallback()
+        
+        # Determine installation strategy based on CUDA detection
+        if wsl_cuda_available or (gpu_info.get("has_nvidia_gpu") and gpu_info.get("has_cuda")):
+            
+            # Get the best available PyTorch index with validation
+            cuda_suffix, index_url = self._get_best_pytorch_index(cuda_version)
+            
+            print(f"  Selected PyTorch index: {cuda_suffix} ({index_url})")
+            
+            # Install CUDA version directly
+            try:
+                if self.dry_run:
+                    print(f"  DRY RUN: Would install PyTorch {cuda_suffix} version")
+                else:
+                    print(f"  Installing PyTorch with {cuda_suffix} support...")
+                    subprocess.run([
+                        str(self.venv_pip), "install", "torch", "torchvision", "torchaudio",
+                        "--index-url", index_url
+                    ], check=True, timeout=1800)  # 30 minute timeout
+                    print("✓ PyTorch CUDA version installed successfully")
+                    
+                    # Verify GPU functionality
+                    return self._verify_pytorch_gpu_installation()
+                    
+            except subprocess.CalledProcessError as e:
+                print(f"⚠ PyTorch CUDA installation failed: {e}")
+                print("  Falling back to CPU version...")
+                return self._install_pytorch_cpu_fallback()
+            except subprocess.TimeoutExpired:
+                print("⚠ PyTorch CUDA installation timed out")
+                print("  Falling back to CPU version...")
+                return self._install_pytorch_cpu_fallback()
+        else:
+            # No CUDA detected - install CPU version
+            print("💻 No CUDA GPU detected - installing CPU version")
+            return self._install_pytorch_cpu_fallback()
+        
+        return True
+
+    def _install_pytorch_cpu_fallback(self) -> bool:
+        """Install CPU version of PyTorch as fallback"""
+        print("Installing PyTorch CPU version...")
         
         try:
             if self.dry_run:
                 print("  DRY RUN: Would install PyTorch CPU version")
-            else:
-                subprocess.run([
-                    str(self.venv_pip), "install", "torch", "torchvision", "torchaudio",
-                    "--index-url", "https://download.pytorch.org/whl/cpu"
-                ], check=True, timeout=1800)  # 30 minute timeout
-                print("✓ PyTorch CPU version installed successfully")
+                return True
+            
+            subprocess.run([
+                str(self.venv_pip), "install", "torch", "torchvision", "torchaudio",
+                "--index-url", "https://download.pytorch.org/whl/cpu"
+            ], check=True, timeout=1800)  # 30 minute timeout
+            
+            print("✓ PyTorch CPU version installed successfully")
+            return True
+            
         except subprocess.CalledProcessError as e:
             print(f"✗ PyTorch CPU installation failed: {e}")
             return False
         except subprocess.TimeoutExpired:
-            print("⚠ PyTorch installation timed out")
+            print("⚠ PyTorch CPU installation timed out")
             return False
+
+    def _verify_pytorch_gpu_installation(self) -> bool:
+        """Verify PyTorch GPU installation and functionality"""
+        print("  Verifying PyTorch GPU installation...")
         
-        # Check if GPU upgrade is available and desired
-        gpu_info = capabilities.get("gpu_info", {})
-        if gpu_info.get("has_nvidia_gpu") and gpu_info.get("has_cuda"):
-            print(f"\n🎯 GPU detected: {gpu_info.get('gpu_models', ['Unknown'])[0]}")
-            print(f"   CUDA version: {gpu_info.get('cuda_version', 'Unknown')}")
+        try:
+            result = subprocess.run([
+                str(self.venv_python), "-c", 
+                """
+import torch
+print(f'CUDA available: {torch.cuda.is_available()}')
+print(f'Device count: {torch.cuda.device_count()}')
+if torch.cuda.is_available():
+    print(f'Current device: {torch.cuda.current_device()}')
+    print(f'Device name: {torch.cuda.get_device_name(0)}')
+    print(f'PyTorch version: {torch.__version__}')
+else:
+    print('GPU functionality not available')
+                """
+            ], capture_output=True, text=True, timeout=30)
             
-            if not self.dry_run:
-                response = input("\nUpgrade to GPU-enabled PyTorch? (y/n): ")
-                if response.lower() == 'y':
-                    return self._upgrade_pytorch_to_gpu(gpu_info)
+            if result.returncode == 0:
+                print("  🎯 GPU verification successful:")
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        print(f"    {line}")
+                return True
             else:
-                print("  DRY RUN: Would offer GPU PyTorch upgrade")
-        
-        return True
+                print("  ⚠ Could not verify GPU functionality")
+                print(f"    Error: {result.stderr}")
+                return True  # Don't fail setup for verification issues
+                
+        except Exception as e:
+            print(f"  ⚠ GPU verification failed: {e}")
+            return True  # Don't fail setup for verification issues
 
     def _upgrade_pytorch_to_gpu(self, gpu_info: Dict) -> bool:
         """Upgrade PyTorch to GPU version with enhanced CUDA detection"""
@@ -907,7 +1148,7 @@ if torch.cuda.is_available():
         }
 
     def install_single_package(self, package: str) -> Tuple[str, bool, str]:
-        """Install a single package using simple pip install (matches manual installation)"""
+        """Install a single package with enhanced compilation support"""
         base_name = package.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].split('>')[0].split('<')[0].split('[')[0]
         
         # Determine timeout based on package
@@ -922,7 +1163,23 @@ if torch.cuda.is_available():
             print(f"  DRY RUN: Would install {package}")
             return package, True, ""
         
-        # Simple pip install - exactly like manual installation
+        # Check if this package needs special compilation support
+        compilation_packages = ['paddleocr', 'paddlepaddle']
+        needs_compilation = any(comp_pkg in base_name.lower() for comp_pkg in compilation_packages)
+        
+        if needs_compilation and self.build_tools_installer:
+            print(f"  Installing {base_name} with enhanced compilation support...")
+            
+            # Try VS environment installation first
+            try:
+                if self.build_tools_installer.install_with_vs_environment(package, str(self.venv_pip)):
+                    print(f"  ✓ {base_name} installed successfully with VS environment")
+                    return package, True, ""
+            except Exception as e:
+                print(f"  ⚠ VS environment installation failed: {e}")
+                print(f"  Falling back to standard installation...")
+        
+        # Standard pip install
         try:
             print(f"  Installing {base_name}...")
             result = subprocess.run([
@@ -938,6 +1195,12 @@ if torch.cuda.is_available():
                 print(f"  ✗ {base_name} installation failed")
                 if error_msg:
                     print(f"    Error: {error_msg[:200]}...")  # Show first 200 chars
+                
+                # For compilation packages, suggest manual installation with VS environment
+                if needs_compilation:
+                    print(f"      Try manual installation with VS environment:")
+                    print(f"       1. Run: install_paddleocr_with_vs.bat")
+                    print(f"       2. Or activate VS environment manually before pip install")
             
             return package, success, error_msg
             
@@ -1217,7 +1480,7 @@ echo "Python: {self.venv_python}"
             ("Setting up build environment", lambda: self.setup_build_environment(self.capabilities)),
             ("Creating virtual environment", self.create_virtual_environment),
             ("Upgrading pip tools", self.upgrade_pip_tools),
-            ("Installing PyTorch (CPU-first)", lambda: self.install_pytorch(self.capabilities)),
+            ("Installing PyTorch (Direct CUDA)", lambda: self.install_pytorch(self.capabilities)),
             ("Installing other packages", self.install_other_packages),
             ("Setting up data directories", self.setup_data_directories),
             ("Creating activation scripts", self.create_activation_scripts),
