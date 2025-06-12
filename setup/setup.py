@@ -1121,9 +1121,12 @@ if torch.cuda.is_available():
         # Exclude PyTorch packages (already installed)
         pytorch_packages = {"torch", "torchvision", "torchaudio"}
         
+        # Exclude PaddleOCR packages (installed via specialized method)
+        paddleocr_packages = {"paddlepaddle", "paddleocr"}
+        
         # Heavy packages that should be installed sequentially
         heavy_packages = {
-            "ultralytics", "paddlepaddle", "paddleocr", "opencv-python", 
+            "ultralytics", "opencv-python", 
             "scipy", "numpy", "pandas", "matplotlib", "transformers"
         }
         
@@ -1135,6 +1138,10 @@ if torch.cuda.is_available():
             
             # Skip PyTorch packages
             if base_name in pytorch_packages:
+                continue
+            
+            # Skip PaddleOCR packages (installed via specialized method)
+            if base_name in paddleocr_packages:
                 continue
             
             if any(heavy in base_name for heavy in heavy_packages):
@@ -1228,9 +1235,65 @@ if torch.cuda.is_available():
             if completed:
                 print(f"\n  ✓ {package}")
 
+    def clean_ultralytics_cache(self) -> bool:
+        """Clean Ultralytics cache to prevent path conflicts"""
+        print("\n=== Cleaning Ultralytics Cache ===")
+        
+        cache_locations = [
+            Path.home() / "AppData" / "Roaming" / "Ultralytics",  # Windows
+            Path.home() / ".config" / "Ultralytics",  # Linux
+            Path.home() / "Library" / "Application Support" / "Ultralytics",  # macOS
+        ]
+        
+        cleaned_any = False
+        
+        for cache_dir in cache_locations:
+            if cache_dir.exists():
+                print(f"Found Ultralytics cache at: {cache_dir}")
+                
+                # Check for settings.json specifically
+                settings_file = cache_dir / "settings.json"
+                if settings_file.exists():
+                    try:
+                        with open(settings_file, 'r') as f:
+                            settings = f.read()
+                        
+                        # Check if it contains old version paths
+                        if "0.1" in settings or "0.2" in settings:
+                            print(f"  Found old version references in settings.json")
+                            
+                            if not self.dry_run:
+                                response = input(f"  Clean Ultralytics cache at {cache_dir}? (y/n): ")
+                                if response.lower() == 'y':
+                                    try:
+                                        shutil.rmtree(cache_dir)
+                                        print(f"  ✓ Cleaned cache directory: {cache_dir}")
+                                        cleaned_any = True
+                                    except Exception as e:
+                                        print(f"  ⚠ Failed to clean cache: {e}")
+                                else:
+                                    print(f"  Skipped cleaning {cache_dir}")
+                            else:
+                                print(f"  DRY RUN: Would clean {cache_dir}")
+                                cleaned_any = True
+                        else:
+                            print(f"  No old version references found in settings.json")
+                    except Exception as e:
+                        print(f"  ⚠ Could not read settings.json: {e}")
+                else:
+                    print(f"  No settings.json found in {cache_dir}")
+        
+        if not cleaned_any:
+            print("  No Ultralytics cache cleanup needed")
+        
+        return True
+
     def install_other_packages(self) -> bool:
         """Install other packages using robust strategies"""
         print("\n=== Installing Other Dependencies ===")
+        
+        # Clean Ultralytics cache before installing to prevent path conflicts
+        self.clean_ultralytics_cache()
         
         requirements_file = self.project_root / "requirements.txt"
         
@@ -1470,13 +1533,18 @@ echo "Python: {self.venv_python}"
 
     def install_specialized_packages(self, capabilities: Dict) -> bool:
         """Install specialized packages like PaddleOCR"""
-        self.logger.info("Installing specialized packages...")
+        print("Installing specialized packages...")
         
-        # Install PaddleOCR
+        # Install PaddleOCR using the proven Method 3 approach
+        if not self.build_tools_installer:
+            print("⚠ Build tools installer not available, skipping PaddleOCR installation")
+            return True
+            
         if not self.build_tools_installer.install_paddleocr(capabilities):
-            self.logger.error("Failed to install PaddleOCR")
+            print("✗ Failed to install PaddleOCR")
             return False
         
+        print("✓ Specialized packages installed successfully")
         return True
 
     def run_complete_setup(self) -> bool:

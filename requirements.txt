@@ -8,8 +8,9 @@ scipy>=1.7.0                # Scientific computing
 ultralytics>=8.0.0          # YOLO11 model training and inference
 
 # OCR and Text Processing
-paddlepaddle>=2.4.0         # PaddlePaddle deep learning framework
-paddleocr>=2.6.0            # PaddleOCR text recognition
+# paddlepaddle and paddleocr are installed via specialized method (BuildToolsInstaller)
+# paddlepaddle==3.0.0       # Installed via Method 3 approach
+# paddleocr>=3.0.1          # Installed via Method 3 approach
 transformers>=4.20.0        # Hugging Face transformers for LayoutLM
 
 # PDF Processing

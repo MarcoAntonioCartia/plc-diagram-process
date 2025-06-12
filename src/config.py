@@ -117,10 +117,10 @@ class Config:
         
         # If data root doesn't exist, it might be because project was moved
         if not data_root_path.exists():
-            print(f"Warning: Data root {data_root_path} not found.")
-            # Try to find it as sibling to project
-            current_path = Path(__file__).parent.parent.absolute()
-            sibling_data = current_path.parent / 'plc-data'
+            print(f"Warning: Data root {data_root_path} not found.") # Try to find it as sibling to project IN THE SAME VERSION FOLDER
+            current_path = Path(__file__).parent.parent.absolute()  # Gets to plc-diagram-processor
+            version_root = current_path.parent  # Gets to the version folder
+            sibling_data = version_root / 'plc-data'  # Gets to X.X/plc-data specifically
             
             if sibling_data.exists():
                 print(f"Found data directory at: {sibling_data}")

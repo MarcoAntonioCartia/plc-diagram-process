@@ -240,9 +240,9 @@ class DatasetManager:
             class_names = ["PLC"]
             names_dict = {0: "PLC"}
             
-        # Create updated config
+        # Create updated config with relative path from script execution location
         updated_config = {
-            "path": str(self.datasets_dir),
+            "path": "../plc-data/datasets",
             "train": "train/images",
             "val": "valid/images", 
             "test": "test/images",
@@ -335,7 +335,7 @@ class DatasetManager:
         if yaml_path.exists():
             # Create a minimal default config
             default_config = {
-                "path": str(self.datasets_dir),
+                "path": ".",
                 "train": "train/images",
                 "val": "valid/images", 
                 "test": "test/images",
