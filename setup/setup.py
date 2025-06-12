@@ -1468,6 +1468,17 @@ echo "Python: {self.venv_python}"
             print(f"  ✗ Failed to create activation script: {e}")
             return False
 
+    def install_specialized_packages(self, capabilities: Dict) -> bool:
+        """Install specialized packages like PaddleOCR"""
+        self.logger.info("Installing specialized packages...")
+        
+        # Install PaddleOCR
+        if not self.build_tools_installer.install_paddleocr(capabilities):
+            self.logger.error("Failed to install PaddleOCR")
+            return False
+        
+        return True
+
     def run_complete_setup(self) -> bool:
         """Run the complete unified setup process"""
         print("Unified PLC Diagram Processor Setup")
@@ -1485,6 +1496,7 @@ echo "Python: {self.venv_python}"
             ("Setting up data directories", self.setup_data_directories),
             ("Creating activation scripts", self.create_activation_scripts),
             ("Verifying installation", self.verify_installation),
+            ("Installing specialized packages", lambda: self.install_specialized_packages(self.capabilities)),
         ]
         
         # Store capabilities for later steps

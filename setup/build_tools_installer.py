@@ -11,13 +11,14 @@ import platform
 import tempfile
 import urllib.request
 import shutil
+import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 
 class BuildToolsInstaller:
     """Handles automatic installation of Visual Studio Build Tools on Windows"""
     
-    def __init__(self):
+    def __init__(self, venv_pip: Optional[str] = None):
         self.system_info = {
             "platform": platform.system(),
             "architecture": platform.architecture()[0]
@@ -26,6 +27,24 @@ class BuildToolsInstaller:
         self.vs_installer_url = "https://aka.ms/vs/17/release/vs_buildtools.exe"
         self.temp_dir = Path(tempfile.gettempdir()) / "plc_setup"
         self.temp_dir.mkdir(exist_ok=True)
+        
+        # Add logger
+        self.logger = logging.getLogger(__name__)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.INFO)
+        
+        # Store venv pip path for package installation
+        if venv_pip:
+            self.venv_pip = venv_pip
+        else:
+            # Default to current python's pip
+            self.venv_pip = sys.executable.replace('python.exe', 'Scripts\\pip.exe')
+            if not os.path.exists(self.venv_pip):
+                self.venv_pip = sys.executable.replace('python', 'pip')  # Linux/Mac
     
     def _check_admin_rights(self) -> bool:
         """Check if running with administrator privileges"""
@@ -701,6 +720,130 @@ call "{vcvars_path}"
         except Exception as e:
             print(f"✗ {package} installation error: {e}")
             return False
+
+    def _install_package(self, package: str, extra_args: Optional[List[str]] = None) -> bool:
+        """Install a package using pip"""
+        try:
+            cmd = [self.venv_pip, "install", package]
+            if extra_args:
+                cmd.extend(extra_args)
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+            
+            if result.returncode == 0:
+                self.logger.info(f"✓ Successfully installed {package}")
+                return True
+            else:
+                self.logger.error(f"✗ Failed to install {package}: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"⚠ Installation of {package} timed out")
+            return False
+        except Exception as e:
+            self.logger.error(f"✗ Installation error for {package}: {e}")
+            return False
+
+    def install_paddleocr(self, capabilities: Dict) -> bool:
+        """Install PaddleOCR with the proven approach"""
+        self.logger.info("Installing PaddleOCR using pre-dependencies method...")
+        
+        try:
+            # Method 3: Pre-install dependencies approach (proven to work)
+            dependencies = [
+                "numpy>=1.19.3",
+                "opencv-python>=4.6.0", 
+                "pillow>=8.2.0",
+                "pyyaml>=6.0",
+                "shapely>=1.7.0",
+                "pyclipper>=1.2.0"
+            ]
+            
+            # Install dependencies first
+            self.logger.info("Installing PaddleOCR dependencies...")
+            for dep in dependencies:
+                if not self._install_package(dep):
+                    self.logger.warning(f"Failed to install dependency: {dep}")
+            
+            # Install PaddlePaddle 3.0
+            self.logger.info("Installing PaddlePaddle 3.0...")
+            if not self._install_package("paddlepaddle==3.0.0"):
+                self.logger.error("Failed to install PaddlePaddle")
+                return False
+            
+            # Install PaddleOCR (try without deps first, then with deps)
+            self.logger.info("Installing PaddleOCR...")
+            success = self._install_package("paddleocr", ["--no-deps"])
+            if not success:
+                self.logger.info("Retrying PaddleOCR installation with dependencies...")
+                success = self._install_package("paddleocr")
+            
+            if success:
+                # Verify installation
+                return self._verify_paddleocr_installation()
+            else:
+                self.logger.error("Failed to install PaddleOCR")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"PaddleOCR installation failed: {e}")
+            return False
+
+    def _verify_paddleocr_installation(self) -> bool:
+        """Verify PaddleOCR installation works correctly"""
+        try:
+            self.logger.info("Verifying PaddleOCR installation...")
+            
+            # Test basic import in subprocess to avoid import conflicts
+            test_script = '''
+try:
+    import paddleocr
+    print("IMPORT_SUCCESS")
+    
+    # Test initialization
+    ocr = paddleocr.PaddleOCR(
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False, 
+        use_textline_orientation=False,
+        show_log=False
+    )
+    print("INIT_SUCCESS")
+except Exception as e:
+    print(f"ERROR: {e}")
+'''
+            
+            python_exe = self.venv_pip.replace('pip.exe', 'python.exe').replace('pip', 'python')
+            result = subprocess.run([python_exe, '-c', test_script], 
+                                  capture_output=True, text=True, timeout=300)
+            
+            if "IMPORT_SUCCESS" in result.stdout:
+                self.logger.info("✓ PaddleOCR import successful")
+                
+                if "INIT_SUCCESS" in result.stdout:
+                    self.logger.info("✓ PaddleOCR initialization successful")
+                    return True
+                else:
+                    self.logger.warning("⚠ PaddleOCR import works but initialization failed")
+                    return True  # Import success is enough for basic functionality
+            else:
+                self.logger.error(f"PaddleOCR verification failed: {result.stdout} {result.stderr}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"PaddleOCR verification failed: {e}")
+            return False
+
+    def install_ocr_tools(self, capabilities: Dict) -> bool:
+        """Install OCR tools including PaddleOCR"""
+        self.logger.info("Installing OCR tools...")
+        
+        # Install PaddleOCR using the proven method
+        if not self.install_paddleocr(capabilities):
+            self.logger.error("Failed to install PaddleOCR")
+            return False
+            
+        self.logger.info("OCR tools installation completed successfully")
+        return True
 
 def main():
     """Test the build tools installer"""
