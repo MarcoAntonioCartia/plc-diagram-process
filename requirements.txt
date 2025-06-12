@@ -51,3 +51,7 @@ flake8>=4.0.0               # Code linting
 # Optional Web Framework (choose one)
 # django>=4.0.0             # Full-featured web framework
 # flask>=2.0.0              # Lightweight web framework
+
+# OCR Dependencies (installed via BuildToolsInstaller)
+# paddlepaddle==3.0.0
+# paddleocr>=3.0.1
