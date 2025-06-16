@@ -751,7 +751,7 @@ call "{vcvars_path}"
         try:
             # Method 3: Pre-install dependencies approach (proven to work)
             dependencies = [
-                "numpy>=1.19.3",
+                "numpy>=1.19.3,<2.0.0",  # Critical: upper bound to avoid NumPy 2.x
                 "opencv-python>=4.6.0", 
                 "pillow>=8.2.0",
                 "pyyaml>=6.0",
