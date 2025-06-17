@@ -50,9 +50,24 @@ class TextExtractionPipeline:
         self.confidence_threshold = confidence_threshold
         self.ocr_lang = ocr_lang
         
-        # Initialize PaddleOCR
-        self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True, show_log=False)
-        
+        # Initialize PaddleOCR with version compatibility
+        try:
+            # Try PP-OCRv5 first (newest)
+            print("Trying PP-OCRv5...")
+            self.ocr = PaddleOCR(ocr_version="PP-OCRv5", lang=ocr_lang, use_angle_cls=True)
+            print("✓ PP-OCRv5 initialized successfully!")
+        except Exception as e:
+            try:
+                # Fallback to PP-OCRv4
+                print("PP-OCRv5 not available, trying PP-OCRv4...")
+                self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True)
+                print("✓ PP-OCRv4 initialized successfully!")
+            except Exception as e2:
+                # Fallback to default version
+                print("PP-OCRv4 not available, using default version...")
+                self.ocr = PaddleOCR(lang=ocr_lang)
+                print("✓ Default PaddleOCR version initialized!")     
+
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
             PLCTextPattern("input", r"I\d+\.\d+", 10, "Input addresses (I0.1, I1.2, etc.)"),
@@ -175,7 +190,11 @@ class TextExtractionPipeline:
             doc = fitz.open(str(pdf_file))
             
             for page_data in detection_data["pages"]:
-                page_num = page_data["page"] - 1
+                # Handle both "page" and "page_num" keys for compatibility
+                page_number = page_data.get("page", page_data.get("page_num", 1))
+                page_num = page_number - 1
+                
+                # Get page image at 2x zoom for better OCR
                 page = doc[page_num]
                 
                 # Convert page to image
@@ -189,8 +208,20 @@ class TextExtractionPipeline:
                 
                 # Process each detection region
                 for detection in page_data["detections"]:
-                    # Expand bounding box to capture nearby text
-                    x1, y1, x2, y2 = detection["global_bbox"]
+                    # Handle both "global_bbox" and "bbox_global" keys for compatibility
+                    bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+                    if isinstance(bbox, dict):
+                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                    if not (isinstance(bbox, list) and len(bbox) == 4):
+                        print(f"Warning: Invalid bbox format in detection: {bbox}")
+                        continue
+                    
+                    # Convert coordinates to float to handle string values
+                    try:
+                        x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                    except (ValueError, TypeError) as e:
+                        print(f"Warning: Invalid coordinate values in bbox {bbox}: {e}")
+                        continue
                     
                     # Scale coordinates for 2x zoom
                     x1, y1, x2, y2 = x1 * 2, y1 * 2, x2 * 2, y2 * 2
@@ -206,17 +237,44 @@ class TextExtractionPipeline:
                     
                     # Extract ROI
                     roi = img[roi_y1:roi_y2, roi_x1:roi_x2]
+
+                    # --- DEBUG: Save ROI and print info ---
+                    import os
+                    debug_dir = "debug_rois"
+                    os.makedirs(debug_dir, exist_ok=True)
+                    det_conf = detection.get('confidence', 0)
+                    det_class = detection.get('class_name', 'unknown')
+                    roi_filename = f"{debug_dir}/page{page_num+1}_class{det_class}_prob{det_conf:.2f}_x{roi_x1}_y{roi_y1}_w{roi_x2-roi_x1}_h{roi_y2-roi_y1}.png"
+                    cv2.imwrite(roi_filename, roi)
+                    print(f"Saved ROI: {roi_filename}, shape: {roi.shape}, bbox: {bbox}, expanded: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2}), confidence: {det_conf}")
+                    # --- END DEBUG ---
                     
                     if roi.size > 0:
                         # Run OCR on ROI
-                        ocr_results = self.ocr.ocr(roi, cls=True)
+                        try:
+                            ocr_results = self.ocr.ocr(roi, cls=True)
+                        except TypeError:
+                            # Fallback for older PaddleOCR versions
+                            ocr_results = self.ocr.ocr(roi)
                         
                         if ocr_results and ocr_results[0]:
-                            for line in ocr_results[0]:
-                                if line:
+                            ocr_lines = ocr_results[0]
+                            if not isinstance(ocr_lines, list):
+                                #print(f"Warning: Unexpected OCR result type: {type(ocr_lines)}")
+                                continue
+
+                            for line in ocr_lines:
+                                if not isinstance(line, (list, tuple)):
+                                    continue  # skip metadata/config keys
+                                if len(line) == 2 and isinstance(line[1], (list, tuple)) and len(line[1]) == 2:
                                     bbox_roi, (text, confidence) = line
-                                    
-                                    if confidence >= self.confidence_threshold and text.strip():
+                                elif len(line) == 3:
+                                    bbox_roi, text, confidence = line
+                                else:
+                                    print(f"Warning: Unexpected OCR result format: {line}")
+                                    continue
+
+                                if confidence >= self.confidence_threshold and text.strip():
                                         # Convert ROI coordinates back to page coordinates
                                         roi_bbox = np.array(bbox_roi)
                                         roi_bbox[:, 0] += roi_x1  # Add ROI offset X
@@ -329,10 +387,24 @@ class TextExtractionPipeline:
         text_center_y = (ty1 + ty2) / 2
         
         for page_data in detection_data["pages"]:
-            if page_data["page"] == text_region.page:
+            # Handle both "page" and "page_num" keys for compatibility
+            page_number = page_data.get("page", page_data.get("page_num", 0))
+            if page_number == text_region.page:
                 for detection in page_data["detections"]:
-                    # Get symbol center
-                    sx1, sy1, sx2, sy2 = detection["global_bbox"]
+                    # Handle both "global_bbox" and "bbox_global" keys for compatibility
+                    bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+                    if isinstance(bbox, dict):
+                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                    if not (isinstance(bbox, list) and len(bbox) == 4):
+                        print(f"Warning: Invalid bbox format in detection: {bbox}")
+                        continue
+                    
+                    # Convert coordinates to float to handle string values
+                    try:
+                        sx1, sy1, sx2, sy2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                    except (ValueError, TypeError) as e:
+                        continue
+
                     symbol_center_x = (sx1 + sx2) / 2
                     symbol_center_y = (sy1 + sy2) / 2
                     
