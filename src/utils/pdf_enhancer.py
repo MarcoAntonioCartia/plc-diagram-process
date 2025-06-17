@@ -316,8 +316,10 @@ class PDFEnhancer:
     
     def _draw_detection_box(self, page: fitz.Page, detection: Dict):
         """Draw a YOLO detection box on the page"""
-        bbox = detection.get("global_bbox", detection.get("bbox_global", []))
-        if not bbox or len(bbox) != 4:
+        bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+        if isinstance(bbox, dict):
+            bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+        if not (isinstance(bbox, list) and len(bbox) == 4):
             return
         
         x1, y1, x2, y2 = bbox

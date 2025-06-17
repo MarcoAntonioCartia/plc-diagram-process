@@ -237,6 +237,17 @@ class TextExtractionPipeline:
                     
                     # Extract ROI
                     roi = img[roi_y1:roi_y2, roi_x1:roi_x2]
+
+                    # --- DEBUG: Save ROI and print info ---
+                    import os
+                    debug_dir = "debug_rois"
+                    os.makedirs(debug_dir, exist_ok=True)
+                    det_conf = detection.get('confidence', 0)
+                    det_class = detection.get('class_name', 'unknown')
+                    roi_filename = f"{debug_dir}/page{page_num+1}_class{det_class}_prob{det_conf:.2f}_x{roi_x1}_y{roi_y1}_w{roi_x2-roi_x1}_h{roi_y2-roi_y1}.png"
+                    cv2.imwrite(roi_filename, roi)
+                    print(f"Saved ROI: {roi_filename}, shape: {roi.shape}, bbox: {bbox}, expanded: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2}), confidence: {det_conf}")
+                    # --- END DEBUG ---
                     
                     if roi.size > 0:
                         # Run OCR on ROI
@@ -247,11 +258,23 @@ class TextExtractionPipeline:
                             ocr_results = self.ocr.ocr(roi)
                         
                         if ocr_results and ocr_results[0]:
-                            for line in ocr_results[0]:
-                                if line:
+                            ocr_lines = ocr_results[0]
+                            if not isinstance(ocr_lines, list):
+                                #print(f"Warning: Unexpected OCR result type: {type(ocr_lines)}")
+                                continue
+
+                            for line in ocr_lines:
+                                if not isinstance(line, (list, tuple)):
+                                    continue  # skip metadata/config keys
+                                if len(line) == 2 and isinstance(line[1], (list, tuple)) and len(line[1]) == 2:
                                     bbox_roi, (text, confidence) = line
-                                    
-                                    if confidence >= self.confidence_threshold and text.strip():
+                                elif len(line) == 3:
+                                    bbox_roi, text, confidence = line
+                                else:
+                                    print(f"Warning: Unexpected OCR result format: {line}")
+                                    continue
+
+                                if confidence >= self.confidence_threshold and text.strip():
                                         # Convert ROI coordinates back to page coordinates
                                         roi_bbox = np.array(bbox_roi)
                                         roi_bbox[:, 0] += roi_x1  # Add ROI offset X
