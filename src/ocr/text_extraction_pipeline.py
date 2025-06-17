@@ -50,9 +50,24 @@ class TextExtractionPipeline:
         self.confidence_threshold = confidence_threshold
         self.ocr_lang = ocr_lang
         
-        # Initialize PaddleOCR
-        self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True, show_log=False)
-        
+        # Initialize PaddleOCR with version compatibility
+        try:
+            # Try PP-OCRv5 first (newest)
+            print("Trying PP-OCRv5...")
+            self.ocr = PaddleOCR(ocr_version="PP-OCRv5", lang=ocr_lang, use_angle_cls=True)
+            print("✓ PP-OCRv5 initialized successfully!")
+        except Exception as e:
+            try:
+                # Fallback to PP-OCRv4
+                print("PP-OCRv5 not available, trying PP-OCRv4...")
+                self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True)
+                print("✓ PP-OCRv4 initialized successfully!")
+            except Exception as e2:
+                # Fallback to default version
+                print("PP-OCRv4 not available, using default version...")
+                self.ocr = PaddleOCR(lang=ocr_lang)
+                print("✓ Default PaddleOCR version initialized!")     
+
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
             PLCTextPattern("input", r"I\d+\.\d+", 10, "Input addresses (I0.1, I1.2, etc.)"),
@@ -209,7 +224,11 @@ class TextExtractionPipeline:
                     
                     if roi.size > 0:
                         # Run OCR on ROI
-                        ocr_results = self.ocr.ocr(roi, cls=True)
+                        try:
+                            ocr_results = self.ocr.ocr(roi, cls=True)
+                        except TypeError:
+                            # Fallback for older PaddleOCR versions
+                            ocr_results = self.ocr.ocr(roi)
                         
                         if ocr_results and ocr_results[0]:
                             for line in ocr_results[0]:

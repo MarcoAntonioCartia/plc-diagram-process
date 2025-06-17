@@ -14,6 +14,9 @@ sys.path.append(str(project_root))
 from src.ocr.text_extraction_pipeline import TextExtractionPipeline
 from src.config import get_config
 
+from src.utils.pdf_enhancer import PDFEnhancer
+
+
 def main():
     parser = argparse.ArgumentParser(description='Run Text Extraction Pipeline on Detection Results')
     parser.add_argument('--detection-folder', '-d', type=str,
@@ -30,6 +33,8 @@ def main():
                        help='Process single detection file instead of folder')
     parser.add_argument('--list-files', action='store_true',
                        help='List available detection files and exit')
+    parser.add_argument('--enhance-pdf', action='store_true',
+                       help='Enhance PDF with detection boxes and text extraction results')
     
     args = parser.parse_args()
     
@@ -79,7 +84,7 @@ def main():
         print(f"Detection files in {detection_folder}:")
         if detection_files:
             for i, file in enumerate(detection_files, 1):
-                pdf_name = file.name.replace("_detections.json", ".pdf")
+                pdf_name = get_pdf_name_from_detection_file(detection_file.name)
                 pdf_exists = (pdf_folder / pdf_name).exists()
                 status = "✓" if pdf_exists else "✗ (PDF missing)"
                 print(f"  {i:2d}. {file.name} {status}")
@@ -105,8 +110,8 @@ def main():
                 print(f"Error: Detection file not found: {detection_file}")
                 return 1
             
-            # Find corresponding PDF
-            pdf_name = detection_file.name.replace("_detections.json", ".pdf")
+            # Find corresponding PDF using improved naming logic
+            pdf_name = get_pdf_name_from_detection_file(detection_file.name)
             pdf_file = pdf_folder / pdf_name
             
             if not pdf_file.exists():
@@ -142,6 +147,30 @@ def main():
                 avg_texts = summary['total_text_regions'] / summary['processed_files']
                 print(f"Average text regions per file: {avg_texts:.1f}")
             
+            if args.enhance_pdf:
+                print("Creating enhanced PDF...")
+                enhancer = PDFEnhancer()
+                
+                # Find the original detection file (non-converted)
+                original_detection_file = detection_file.parent / detection_file.name.replace("_converted.json", ".json")
+                if not original_detection_file.exists():
+                    # Try to find any detection file for this PDF
+                    pdf_stem = pdf_file.stem
+                    possible_detection_files = list(detection_file.parent.glob(f"{pdf_stem}*.json"))
+                    if possible_detection_files:
+                        original_detection_file = possible_detection_files[0]
+                
+                if original_detection_file.exists():
+                    enhanced_pdf = enhancer.enhance_pdf_complete(
+                        original_detection_file,
+                        Path(output_folder) / f"{pdf_file.stem}_text_extraction.json",
+                        pdf_file,
+                        Path(output_folder) / f"{pdf_file.stem}_enhanced.pdf"
+                    )
+                    print(f"Enhanced PDF created: {enhanced_pdf}")
+                else:
+                    print("Warning: Could not find original detection file for PDF enhancement")
+
             print(f"Results saved to: {output_folder}")
         
         return 0
@@ -151,6 +180,41 @@ def main():
         import traceback
         traceback.print_exc()
         return 1
+    
+def get_pdf_name_from_detection_file(detection_filename: str) -> str:
+    """
+    Extract PDF name from detection filename
+    
+    Handles various naming patterns:
+    - 1150_detections.json -> 1150.pdf
+    - 1150_detections_converted.json -> 1150.pdf
+    - diagram_detections.json -> diagram.pdf
+    """
+    # Remove .json extension first
+    name = detection_filename
+    if name.endswith(".json"):
+        name = name[:-5]
+    
+    # Debug: show intermediate steps
+    
+    # Remove detection suffixes in order (longest first)
+    if name.endswith("_detections_converted"):
+        name = name[:-20]  # Remove "_detections_converted"
+        print(f"Debug: After removing _detections_converted: '{name}'")
+    elif name.endswith("_detections"):
+        name = name[:-11]  # Remove "_detections"
+    elif name.endswith("_converted"):
+        name = name[:-10]  # Remove "_converted"
+    
+    # Remove trailing underscore if present
+    if name.endswith("_"):
+        name = name[:-1]
+    
+    # Add .pdf extension
+    result = f"{name}.pdf"
+    
+    return result
+
 
 if __name__ == "__main__":
     exit(main())

@@ -98,14 +98,40 @@ class UnifiedPLCSetup:
 
     def check_python_version(self) -> bool:
         """Check if Python version is compatible"""
-        min_version = (3, 8)
+        min_version = (3, 8)  # Minimum supported version
+        max_version = (3, 12)  # Maximum supported version (exclusive)
         current_version = sys.version_info[:2]
         
-        if current_version < min_version:
-            print(f"✗ Python {min_version[0]}.{min_version[1]}+ required, but {current_version[0]}.{current_version[1]} found")
+        if current_version < min_version or current_version > max_version:
+            print(f"✗ Python {min_version[0]}.{min_version[1]} required, but {current_version[0]}.{current_version[1]} found")
             return False
         
         print(f"✓ Python {current_version[0]}.{current_version[1]} detected")
+        return True
+    
+    def clean_existing_environment(self) -> bool:
+        """Clean up existing virtual environment and caches"""
+        print("\n=== Cleaning Existing Environment ===")
+        
+        # Clean virtual environment
+        if self.venv_path.exists():
+            print(f"Removing existing virtual environment at: {self.venv_path}")
+            try:
+                shutil.rmtree(self.venv_path)
+                print("✓ Virtual environment removed")
+            except Exception as e:
+                print(f"✗ Failed to remove virtual environment: {e}")
+                return False
+        
+        # Clean pip cache
+        print("Cleaning pip cache...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "cache", "purge"], 
+                        check=True, capture_output=True)
+            print("✓ Pip cache cleaned")
+        except Exception as e:
+            print(f"⚠ Failed to clean pip cache: {e}")
+        
         return True
 
     def run_command(self, command: List[str], description: str, shell: bool = False, use_venv: bool = False) -> bool:
@@ -750,8 +776,68 @@ wsl -e {tool} %*
         
         return True
 
+    def find_latest_python(self) -> Optional[str]:
+        """Find the latest compatible Python version installed on the system"""
+        print("\n=== Finding Latest Compatible Python ===")
+        
+        if self.system == 'windows':
+            # On Windows, check common installation paths
+            python_paths = [
+                r"C:\Python311\python.exe",  # Python 3.11
+                r"C:\Python310\python.exe",  # Python 3.10
+                r"C:\Python39\python.exe",   # Python 3.9
+                r"C:\Python38\python.exe",   # Python 3.8
+                r"C:\Users\*\AppData\Local\Programs\Python\Python311\python.exe",
+                r"C:\Users\*\AppData\Local\Programs\Python\Python310\python.exe",
+                r"C:\Users\*\AppData\Local\Programs\Python\Python39\python.exe",
+                r"C:\Users\*\AppData\Local\Programs\Python\Python38\python.exe",
+            ]
+            
+            # Try to find Python in PATH first
+            try:
+                result = subprocess.run(['where', 'python'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    for path in result.stdout.splitlines():
+                        if path.strip():
+                            try:
+                                version = subprocess.run([path, '--version'], 
+                                                    capture_output=True, text=True)
+                                if version.returncode == 0:
+                                    print(f"Found Python in PATH: {path}")
+                                    return path
+                            except:
+                                continue
+            except:
+                pass
+            
+            # Check specific paths
+            for path_pattern in python_paths:
+                try:
+                    import glob
+                    for path in glob.glob(path_pattern):
+                        if os.path.exists(path):
+                            print(f"Found Python installation: {path}")
+                            return path
+                except:
+                    continue
+        else:
+            # On Linux/Mac, try python3.x commands
+            for version in range(11, 7, -1):  # Try 3.11 down to 3.8
+                try:
+                    cmd = f'python3.{version}'
+                    result = subprocess.run([cmd, '--version'], 
+                                        capture_output=True, text=True)
+                    if result.returncode == 0:
+                        print(f"Found Python: {cmd}")
+                        return cmd
+                except:
+                    continue
+        
+        print("⚠ No compatible Python version found")
+        return None
+
     def create_virtual_environment(self) -> bool:
-        """Create virtual environment"""
+        """Create virtual environment using the latest compatible Python"""
         print("\n=== Virtual Environment Setup ===")
         
         if self.venv_path.exists():
@@ -775,10 +861,17 @@ wsl -e {tool} %*
                     print(f"✗ Failed to remove existing environment: {e}")
                     return False
         
-        print("Creating virtual environment...")
+        # Find the latest compatible Python
+        python_executable = self.find_latest_python()
+        if not python_executable:
+            print("✗ No compatible Python version found")
+            print("Please install Python 3.8-3.11 and try again")
+            return False
+        
+        print(f"Creating virtual environment using: {python_executable}")
         try:
             if not self.dry_run:
-                subprocess.run([sys.executable, "-m", "venv", str(self.venv_path)], check=True)
+                subprocess.run([python_executable, "-m", "venv", str(self.venv_path)], check=True)
             print("✓ Virtual environment created successfully")
             return True
         except subprocess.CalledProcessError as e:
@@ -1553,7 +1646,9 @@ echo "Python: {self.venv_python}"
         print("=" * 60)
         
         steps = [
+            ("Finding latest Python version", self.find_latest_python),
             ("Checking Python version", self.check_python_version),
+            ("Cleaning existing environment", self.clean_existing_environment),
             ("Detecting system capabilities", lambda: (self.detect_system_capabilities(), True)[1]),
             ("Installing system dependencies", self.install_system_dependencies),
             ("Setting up build environment", lambda: self.setup_build_environment(self.capabilities)),
@@ -1594,13 +1689,13 @@ echo "Python: {self.venv_python}"
         # Show summary
         gpu_info = self.capabilities.get("gpu_info", {}) if self.capabilities else {}
         if gpu_info.get("has_nvidia_gpu"):
-            print(f"\n🎯 GPU Status: {gpu_info.get('gpu_models', ['Unknown'])[0]} detected")
+            print(f"\nGPU Status: {gpu_info.get('gpu_models', ['Unknown'])[0]} detected")
         else:
-            print("\n💻 GPU Status: CPU-only (no CUDA GPU detected)")
+            print("\nGPU Status: CPU-only (no CUDA GPU detected)")
         
         # Show WSL GPU status if available
         if hasattr(self, 'wsl_gpu_info') and self.wsl_gpu_info.get('available'):
-            print(f"🐧 WSL GPU Status: {self.wsl_gpu_info['gpu_name']} ready for training")
+            print(f"WSL GPU Status: {self.wsl_gpu_info['gpu_name']} ready for training")
         
         print(f"\nProject ready at: {self.project_root}")
         print(f"Data directory: {self.data_root}")
