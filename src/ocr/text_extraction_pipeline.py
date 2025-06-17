@@ -190,7 +190,11 @@ class TextExtractionPipeline:
             doc = fitz.open(str(pdf_file))
             
             for page_data in detection_data["pages"]:
-                page_num = page_data["page"] - 1
+                # Handle both "page" and "page_num" keys for compatibility
+                page_number = page_data.get("page", page_data.get("page_num", 1))
+                page_num = page_number - 1
+                
+                # Get page image at 2x zoom for better OCR
                 page = doc[page_num]
                 
                 # Convert page to image
@@ -204,8 +208,20 @@ class TextExtractionPipeline:
                 
                 # Process each detection region
                 for detection in page_data["detections"]:
-                    # Expand bounding box to capture nearby text
-                    x1, y1, x2, y2 = detection["global_bbox"]
+                    # Handle both "global_bbox" and "bbox_global" keys for compatibility
+                    bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+                    if isinstance(bbox, dict):
+                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                    if not (isinstance(bbox, list) and len(bbox) == 4):
+                        print(f"Warning: Invalid bbox format in detection: {bbox}")
+                        continue
+                    
+                    # Convert coordinates to float to handle string values
+                    try:
+                        x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                    except (ValueError, TypeError) as e:
+                        print(f"Warning: Invalid coordinate values in bbox {bbox}: {e}")
+                        continue
                     
                     # Scale coordinates for 2x zoom
                     x1, y1, x2, y2 = x1 * 2, y1 * 2, x2 * 2, y2 * 2
@@ -348,10 +364,24 @@ class TextExtractionPipeline:
         text_center_y = (ty1 + ty2) / 2
         
         for page_data in detection_data["pages"]:
-            if page_data["page"] == text_region.page:
+            # Handle both "page" and "page_num" keys for compatibility
+            page_number = page_data.get("page", page_data.get("page_num", 0))
+            if page_number == text_region.page:
                 for detection in page_data["detections"]:
-                    # Get symbol center
-                    sx1, sy1, sx2, sy2 = detection["global_bbox"]
+                    # Handle both "global_bbox" and "bbox_global" keys for compatibility
+                    bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+                    if isinstance(bbox, dict):
+                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                    if not (isinstance(bbox, list) and len(bbox) == 4):
+                        print(f"Warning: Invalid bbox format in detection: {bbox}")
+                        continue
+                    
+                    # Convert coordinates to float to handle string values
+                    try:
+                        sx1, sy1, sx2, sy2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                    except (ValueError, TypeError) as e:
+                        continue
+
                     symbol_center_x = (sx1 + sx2) / 2
                     symbol_center_y = (sy1 + sy2) / 2
                     

@@ -35,6 +35,8 @@ def main():
                        help='List available detection files and exit')
     parser.add_argument('--enhance-pdf', action='store_true',
                        help='Enhance PDF with detection boxes and text extraction results')
+    parser.add_argument('--enhance-pdf-batch', action='store_true',
+                   help='Create enhanced PDFs for all processed files')
     
     args = parser.parse_args()
     
@@ -171,6 +173,31 @@ def main():
                 else:
                     print("Warning: Could not find original detection file for PDF enhancement")
 
+            if args.enhance_pdf_batch:
+                print("\nCreating enhanced PDFs for all processed files...")
+                enhancer = PDFEnhancer()
+                
+                # Find original detection folder (non-converted files)
+                original_detection_folder = detection_folder.parent / detection_folder.name.replace("texttoextract", "detdiagrams2")
+                if not original_detection_folder.exists():
+                    # Try to find detection folder
+                    possible_folders = list(detection_folder.parent.glob("*detdiagrams*"))
+                    if possible_folders:
+                        original_detection_folder = possible_folders[0]
+                
+                if original_detection_folder.exists():
+                    enhanced_output_folder = output_folder.parent / "enhanced_pdfs"
+                    summary = enhancer.enhance_folder_batch(
+                        original_detection_folder,
+                        output_folder,
+                        pdf_folder,
+                        enhanced_output_folder,
+                        'complete'
+                    )
+                    print(f"Enhanced PDFs created in: {enhanced_output_folder}")
+                else:
+                    print("Warning: Could not find original detection folder for PDF enhancement")
+
             print(f"Results saved to: {output_folder}")
         
         return 0
@@ -196,6 +223,7 @@ def get_pdf_name_from_detection_file(detection_filename: str) -> str:
         name = name[:-5]
     
     # Debug: show intermediate steps
+    print(f"Debug: After removing .json: '{name}'")
     
     # Remove detection suffixes in order (longest first)
     if name.endswith("_detections_converted"):
@@ -209,9 +237,13 @@ def get_pdf_name_from_detection_file(detection_filename: str) -> str:
     # Remove trailing underscore if present
     if name.endswith("_"):
         name = name[:-1]
+        print(f"Debug: After removing trailing underscore: '{name}'")
     
     # Add .pdf extension
     result = f"{name}.pdf"
+    
+    # Debug output
+    print(f"Debug: Final result: '{detection_filename}' -> '{result}'")
     
     return result
 

@@ -193,6 +193,126 @@ class PDFEnhancer:
         
         print(f"Complete enhanced PDF saved to: {output_file}")
         return output_file
+    def enhance_folder_batch(self,
+                           detection_folder: Path,
+                           text_extraction_folder: Path,
+                           pdf_folder: Path,
+                           output_folder: Optional[Path] = None,
+                           mode: str = 'complete') -> Dict[str, Any]:
+        """
+        Enhance all PDFs in a folder with batch processing
+        
+        Args:
+            detection_folder: Folder containing detection JSON files
+            text_extraction_folder: Folder containing text extraction JSON files
+            pdf_folder: Folder containing original PDF files
+            output_folder: Output folder for enhanced PDFs (optional)
+            mode: Enhancement mode ('detections', 'text', 'complete')
+            
+        Returns:
+            Summary of processing results
+        """
+        print(f"Starting batch PDF enhancement...")
+        print(f"Detection folder: {detection_folder}")
+        print(f"Text extraction folder: {text_extraction_folder}")
+        print(f"PDF folder: {pdf_folder}")
+        print(f"Output folder: {output_folder}")
+        print(f"Mode: {mode}")
+        
+        if output_folder:
+            output_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Find all detection files
+        detection_files = list(detection_folder.glob("*_detections.json"))
+        if not detection_files:
+            print(f"No detection files found in {detection_folder}")
+            return {"processed": 0, "errors": [], "results": []}
+        
+        print(f"Found {len(detection_files)} detection files")
+        
+        results = []
+        errors = []
+        processed = 0
+        
+        for detection_file in detection_files:
+            try:
+                # Extract base name
+                base_name = detection_file.stem.replace("_detections", "").replace("_converted", "")
+                
+                # Find corresponding files
+                pdf_file = pdf_folder / f"{base_name}.pdf"
+                text_extraction_file = text_extraction_folder / f"{base_name}_text_extraction.json"
+                
+                if not pdf_file.exists():
+                    print(f"Warning: PDF not found for {detection_file.name}: {pdf_file}")
+                    continue
+                
+                if mode in ['text', 'complete'] and not text_extraction_file.exists():
+                    print(f"Warning: Text extraction file not found for {detection_file.name}: {text_extraction_file}")
+                    continue
+                
+                print(f"\nProcessing: {detection_file.name}")
+                
+                # Determine output file
+                if output_folder:
+                    output_file = output_folder / f"{base_name}_enhanced.pdf"
+                else:
+                    output_file = pdf_file.parent / f"{base_name}_enhanced.pdf"
+                
+                # Enhance PDF based on mode
+                if mode == 'detections':
+                    enhanced_pdf = self.enhance_pdf_with_detections(
+                        detection_file, pdf_file, output_file
+                    )
+                elif mode == 'text':
+                    enhanced_pdf = self.enhance_pdf_with_text_extraction(
+                        text_extraction_file, pdf_file, output_file
+                    )
+                elif mode == 'complete':
+                    enhanced_pdf = self.enhance_pdf_complete(
+                        detection_file, text_extraction_file, pdf_file, output_file
+                    )
+                
+                results.append({
+                    "detection_file": str(detection_file),
+                    "pdf_file": str(pdf_file),
+                    "text_extraction_file": str(text_extraction_file) if text_extraction_file.exists() else None,
+                    "enhanced_pdf": str(enhanced_pdf),
+                    "mode": mode
+                })
+                
+                processed += 1
+                print(f"✓ Enhanced: {enhanced_pdf.name}")
+                
+            except Exception as e:
+                error_msg = f"Error processing {detection_file.name}: {e}"
+                print(f"✗ {error_msg}")
+                errors.append(error_msg)
+                continue
+        
+        # Generate summary
+        summary = {
+            "processed": processed,
+            "total_files": len(detection_files),
+            "errors": errors,
+            "results": results,
+            "success_rate": (processed / len(detection_files) * 100) if detection_files else 0
+        }
+        
+        # Save summary
+        if output_folder:
+            summary_file = output_folder / "enhancement_summary.json"
+            with open(summary_file, 'w') as f:
+                json.dump(summary, f, indent=2)
+            print(f"\nSummary saved to: {summary_file}")
+        
+        print(f"\nBatch enhancement completed!")
+        print(f"Processed: {processed}/{len(detection_files)} files")
+        print(f"Success rate: {summary['success_rate']:.1f}%")
+        if errors:
+            print(f"Errors: {len(errors)}")
+        
+        return summary
     
     def _draw_detection_box(self, page: fitz.Page, detection: Dict):
         """Draw a YOLO detection box on the page"""
@@ -335,32 +455,61 @@ def main():
                        help='Output PDF file')
     parser.add_argument('--mode', '-m', type=str, choices=['detections', 'text', 'complete'], 
                        default='complete', help='Enhancement mode')
+    parser.add_argument('--detection-folder', type=str,
+                       help='Folder containing detection JSON files (batch mode)')
+    parser.add_argument('--text-extraction-folder', type=str,
+                       help='Folder containing text extraction JSON files (batch mode)')
+    parser.add_argument('--pdf-folder', type=str,
+                       help='Folder containing original PDF files (batch mode)')
+    parser.add_argument('--output-folder', type=str,
+                       help='Output folder for enhanced PDFs (batch mode)')
+    parser.add_argument('--batch', action='store_true',
+                       help='Enable batch processing mode')
     
     args = parser.parse_args()
     
     enhancer = PDFEnhancer()
     
     try:
-        if args.mode == 'detections' and args.detection_file:
-            enhancer.enhance_pdf_with_detections(
-                Path(args.detection_file), Path(args.pdf_file), 
-                Path(args.output) if args.output else None
+        if args.batch:
+            # Batch processing mode
+            if not all([args.detection_folder, args.text_extraction_folder, args.pdf_folder]):
+                print("Error: For batch mode, all folder arguments are required")
+                return 1
+            
+            summary = enhancer.enhance_folder_batch(
+                Path(args.detection_folder),
+                Path(args.text_extraction_folder),
+                Path(args.pdf_folder),
+                Path(args.output_folder) if args.output_folder else None,
+                args.mode
             )
-        elif args.mode == 'text' and args.text_file:
-            enhancer.enhance_pdf_with_text_extraction(
-                Path(args.text_file), Path(args.pdf_file), 
-                Path(args.output) if args.output else None
-            )
-        elif args.mode == 'complete' and args.detection_file and args.text_file:
-            enhancer.enhance_pdf_complete(
-                Path(args.detection_file), Path(args.text_file), Path(args.pdf_file), 
-                Path(args.output) if args.output else None
-            )
+            
+            print(f"\nBatch processing completed successfully!")
+            return 0
+            
         else:
-            print("Error: Missing required files for selected mode")
-            return 1
-        
-        return 0
+            # Single file mode
+            if args.mode == 'detections' and args.detection_file and args.pdf_file:
+                enhancer.enhance_pdf_with_detections(
+                    Path(args.detection_file), Path(args.pdf_file), 
+                    Path(args.output) if args.output else None
+                )
+            elif args.mode == 'text' and args.text_file and args.pdf_file:
+                enhancer.enhance_pdf_with_text_extraction(
+                    Path(args.text_file), Path(args.pdf_file), 
+                    Path(args.output) if args.output else None
+                )
+            elif args.mode == 'complete' and args.detection_file and args.text_file and args.pdf_file:
+                enhancer.enhance_pdf_complete(
+                    Path(args.detection_file), Path(args.text_file), Path(args.pdf_file), 
+                    Path(args.output) if args.output else None
+                )
+            else:
+                print("Error: Missing required files for selected mode")
+                return 1
+            
+            return 0
         
     except Exception as e:
         print(f"PDF enhancement failed: {e}")
