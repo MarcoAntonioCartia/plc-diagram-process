@@ -16,25 +16,31 @@ class PDFEnhancer:
     Enhances PDFs with detection boxes and text extraction results
     """
     
-    def __init__(self, font_size: float = 8, line_width: float = 1.0):
+    def __init__(self, font_size: float = 10, line_width: float = 1.5, 
+                 confidence_threshold: float = 0.8):
         """
         Initialize PDF enhancer
         
         Args:
             font_size: Font size for text annotations
             line_width: Line width for boxes and lines
+            confidence_threshold: Minimum confidence for showing detection boxes
         """
         self.font_size = font_size
         self.line_width = line_width
+        self.confidence_threshold = confidence_threshold
         
-        # Color definitions (RGB format for PyMuPDF)
+        # Color definitions (RGB format for PyMuPDF) - Updated for cleaner look
         self.colors = {
-            "yolo_detection": (1, 0, 1),      # Magenta
-            "pdf_text": (0, 1, 0),            # Green
-            "ocr_text": (1, 0, 0),            # Red
-            "connection": (1, 1, 0),          # Yellow
-            "background": (1, 1, 1),          # White
-            "text_color": (0, 0, 0)           # Black
+            "yolo_detection": (0, 0, 1),        # Blue for detection boxes
+            "text_box": (0, 0.8, 0),            # Green for text boxes (like your example)
+            "text_label": (0, 0.6, 0),          # Darker green for text labels
+            "connection": (0.7, 0.7, 0.7),      # Light gray for connections
+            "background": (1, 1, 1),            # White
+            "text_color": (0, 0, 0),            # Black
+            "confidence_high": (0, 0.8, 0),     # Green for high confidence
+            "confidence_medium": (1, 0.6, 0),   # Orange for medium confidence
+            "confidence_low": (1, 0, 0)         # Red for low confidence
         }
     
     def enhance_pdf_with_detections(self, 
@@ -315,7 +321,13 @@ class PDFEnhancer:
         return summary
     
     def _draw_detection_box(self, page: fitz.Page, detection: Dict):
-        """Draw a YOLO detection box on the page"""
+        """Draw a YOLO detection box on the page (only if confidence >= threshold)"""
+        confidence = detection.get("confidence", 0.0)
+        
+        # Only draw if confidence meets threshold
+        if confidence < self.confidence_threshold:
+            return
+            
         bbox = detection.get("global_bbox", detection.get("bbox_global", None))
         if isinstance(bbox, dict):
             bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
@@ -327,22 +339,28 @@ class PDFEnhancer:
         # Create rectangle
         rect = fitz.Rect(x1, y1, x2, y2)
         
-        # Draw box
-        page.draw_rect(rect, color=self.colors["yolo_detection"], 
-                      width=self.line_width, fill=None)
+        # Choose color based on confidence level
+        if confidence >= 0.95:
+            box_color = self.colors["confidence_high"]
+        elif confidence >= 0.85:
+            box_color = self.colors["confidence_medium"]
+        else:
+            box_color = self.colors["yolo_detection"]
         
-        # Add label
+        # Draw box with thinner line for cleaner look
+        page.draw_rect(rect, color=box_color, width=1.0, fill=None)
+        
+        # Add label with cleaner formatting
         class_name = detection.get("class_name", "unknown")
-        confidence = detection.get("confidence", 0.0)
-        label = f"{class_name} ({confidence:.2f})"
+        label = f"{class_name} {confidence:.0%}"  # Show as percentage
         
-        # Position label above box
-        text_point = fitz.Point(x1, y1 - 5)
-        page.insert_text(text_point, label, fontsize=self.font_size, 
+        # Position label above box with better spacing
+        text_point = fitz.Point(x1, y1 - 8)
+        page.insert_text(text_point, label, fontsize=self.font_size - 1, 
                         color=self.colors["text_color"])
     
     def _draw_text_region(self, page: fitz.Page, text_region: Dict):
-        """Draw a text region on the page"""
+        """Draw a text region on the page with green boxes like the example"""
         bbox = text_region["bbox"]
         text = text_region["text"]
         confidence = text_region["confidence"]
@@ -351,22 +369,29 @@ class PDFEnhancer:
         
         x1, y1, x2, y2 = bbox
         
-        # Choose color based on source
-        color = self.colors["pdf_text"] if source == "pdf" else self.colors["ocr_text"]
+        # Use green color for all text boxes (like your example)
+        text_color = self.colors["text_box"]
         
-        # Draw text box
+        # Draw text box with green outline
         rect = fitz.Rect(x1, y1, x2, y2)
-        page.draw_rect(rect, color=color, width=self.line_width, fill=None)
+        page.draw_rect(rect, color=text_color, width=1.5, fill=None)
         
-        # Add text label
-        label = f"{text} ({confidence:.2f})"
-        text_point = fitz.Point(x1, y1 - 5)
-        page.insert_text(text_point, label, fontsize=self.font_size, 
+        # Position text inside the box (centered vertically)
+        text_height = y2 - y1
+        text_y = y1 + (text_height / 2) + (self.font_size / 3)  # Center vertically
+        text_x = x1 + 2  # Small left margin
+        
+        # Clean text formatting - just show the text without confidence
+        display_text = text.strip()
+        
+        # Insert text inside the box
+        text_point = fitz.Point(text_x, text_y)
+        page.insert_text(text_point, display_text, fontsize=self.font_size - 1, 
                         color=self.colors["text_color"])
         
-        # Draw connection to associated symbol if available
+        # Optional: Draw subtle connection to associated symbol (very light)
         if associated_symbol and "global_bbox" in associated_symbol:
-            symbol_bbox = associated_symbol["global_bbox"]
+            symbol_bbox = associated_symbol.get("global_bbox", associated_symbol.get("bbox_global"))
             if isinstance(symbol_bbox, list) and len(symbol_bbox) == 4:
                 sx1, sy1, sx2, sy2 = symbol_bbox
                 
@@ -374,9 +399,9 @@ class PDFEnhancer:
                 text_center = fitz.Point((x1 + x2) / 2, (y1 + y2) / 2)
                 symbol_center = fitz.Point((sx1 + sx2) / 2, (sy1 + sy2) / 2)
                 
-                # Draw connection line
+                # Draw very subtle connection line
                 page.draw_line(text_center, symbol_center, 
-                              color=self.colors["connection"], width=1)
+                              color=(0.9, 0.9, 0.9), width=0.5)  # Very light gray
     
     def _add_legend_and_stats(self, page: fitz.Page, text_data: Dict):
         """Add legend and statistics to the page"""
@@ -416,17 +441,17 @@ class PDFEnhancer:
         page.insert_text(fitz.Point(legend_x + 25, legend_y + 15), 
                         "YOLO Detections", fontsize=self.font_size, color=self.colors["text_color"])
         
-        # PDF text (green)
+        # Text boxes (green)
         page.draw_rect(fitz.Rect(legend_x, legend_y + 30, legend_x + 20, legend_y + 50), 
-                      color=self.colors["pdf_text"], fill=self.colors["pdf_text"])
+                      color=self.colors["text_box"], fill=self.colors["text_box"])
         page.insert_text(fitz.Point(legend_x + 25, legend_y + 45), 
-                        "PDF Text", fontsize=self.font_size, color=self.colors["text_color"])
+                        "Text Regions", fontsize=self.font_size, color=self.colors["text_color"])
         
-        # OCR text (red)
+        # High confidence detections (blue)
         page.draw_rect(fitz.Rect(legend_x, legend_y + 60, legend_x + 20, legend_y + 80), 
-                      color=self.colors["ocr_text"], fill=self.colors["ocr_text"])
+                      color=self.colors["yolo_detection"], fill=self.colors["yolo_detection"])
         page.insert_text(fitz.Point(legend_x + 25, legend_y + 75), 
-                        "OCR Text", fontsize=self.font_size, color=self.colors["text_color"])
+                        f"High Conf Detections (≥{self.confidence_threshold:.0%})", fontsize=self.font_size, color=self.colors["text_color"])
         
         # Connections (yellow)
         page.draw_line(fitz.Point(legend_x, legend_y + 95), fitz.Point(legend_x + 20, legend_y + 95), 
