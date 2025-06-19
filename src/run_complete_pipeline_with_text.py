@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).resolve().parent.parent.parent
+project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
 from src.detection.run_complete_pipeline import CompletePipelineRunner
@@ -467,10 +467,15 @@ def main():
             print("1. Review detection results in processed/detdiagrams/")
             if not args.skip_text_extraction:
                 print("2. Review text extraction results in processed/text_extraction/")
-                print("3. Check complete_pipeline_summary.json for detailed metrics")
-                print("4. Proceed to data structuring stage (LayoutLM)")
+                if args.create_enhanced_pdf:
+                    print("3. Review enhanced PDFs in processed/enhanced_pdfs/")
+                    print("4. Check complete_pipeline_summary.json for detailed metrics")
+                    print("5. Proceed to data structuring stage (LayoutLM)")
+                else:
+                    print("3. Check complete_pipeline_summary.json for detailed metrics")
+                    print("4. Proceed to data structuring stage (LayoutLM)")
             else:
-                print("2. Run text extraction: python src/ocr/run_text_extraction.py")
+                print("2. Run text extraction: python src/run_complete_pipeline_with_text.py --skip-detection")
                 print("3. Proceed to data structuring stage")
             return 0
         else:

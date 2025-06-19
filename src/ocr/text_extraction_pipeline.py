@@ -13,6 +13,10 @@ from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from paddleocr import PaddleOCR
 
+# Import our new modules
+from .detection_deduplication import deduplicate_detections, analyze_detection_overlaps
+from .roi_preprocessing import ROIPreprocessor, create_preprocessed_roi_folder
+
 @dataclass
 class TextRegion:
     """Represents a detected text region with metadata"""
@@ -39,16 +43,29 @@ class TextExtractionPipeline:
     3. Smart fusion and PLC pattern recognition
     """
     
-    def __init__(self, confidence_threshold: float = 0.7, ocr_lang: str = "en"):
+    def __init__(self, confidence_threshold: float = 0.5, ocr_lang: str = "en", 
+                 enable_nms: bool = True, nms_iou_threshold: float = 0.5,
+                 enable_roi_preprocessing: bool = False):
         """
         Initialize the text extraction pipeline
         
         Args:
-            confidence_threshold: Minimum confidence for OCR results
+            confidence_threshold: Minimum confidence for OCR results (lowered to 0.5)
             ocr_lang: Language for OCR (default: English)
+            enable_nms: Whether to apply Non-Maximum Suppression to remove overlapping detections
+            nms_iou_threshold: IoU threshold for NMS
+            enable_roi_preprocessing: Whether to apply ROI preprocessing for better OCR
         """
         self.confidence_threshold = confidence_threshold
         self.ocr_lang = ocr_lang
+        self.enable_nms = enable_nms
+        self.nms_iou_threshold = nms_iou_threshold
+        self.enable_roi_preprocessing = enable_roi_preprocessing
+        
+        # Initialize ROI preprocessor
+        if self.enable_roi_preprocessing:
+            self.roi_preprocessor = ROIPreprocessor()
+            self.roi_preprocessor.set_debug_mode(True)  # Enable debug mode for now
         
         # Initialize PaddleOCR with version compatibility
         try:
@@ -109,17 +126,30 @@ class TextExtractionPipeline:
         with open(detection_file, 'r') as f:
             detection_data = json.load(f)
         
+        # Apply Non-Maximum Suppression to remove overlapping detections
+        if self.enable_nms:
+            print(f"Original detections: {sum(len(page['detections']) for page in detection_data['pages'])}")
+            detection_data = deduplicate_detections(
+                detection_data, 
+                iou_threshold=self.nms_iou_threshold,
+                class_specific=True
+            )
+            print(f"After NMS: {sum(len(page['detections']) for page in detection_data['pages'])}")
+        
         # Extract text using both methods
-        pdf_texts = self._extract_pdf_text(pdf_file)
+        pdf_texts = self._extract_pdf_text_near_detections(pdf_file, detection_data)
         ocr_texts = self._extract_ocr_text_from_regions(detection_data, pdf_file)
         
         # Combine and associate texts with symbols
+        print(f"Combining texts: {len(pdf_texts)} PDF + {len(ocr_texts)} OCR = {len(pdf_texts) + len(ocr_texts)} total")
         combined_results = self._combine_and_associate_texts(
             pdf_texts, ocr_texts, detection_data
         )
+        print(f"After deduplication: {len(combined_results)} combined text regions")
         
         # Apply PLC pattern recognition and filtering
         filtered_results = self._apply_plc_pattern_filtering(combined_results)
+        print(f"After PLC pattern filtering: {len(filtered_results)} final text regions")
         
         # Generate output
         output_data = {
@@ -142,12 +172,41 @@ class TextExtractionPipeline:
         
         return output_data
     
-    def _extract_pdf_text(self, pdf_file: Path) -> List[TextRegion]:
-        """Extract text directly from PDF using PyMuPDF"""
+    def _extract_pdf_text_near_detections(self, pdf_file: Path, detection_data: Dict) -> List[TextRegion]:
+        """Extract text from PDF only near detected symbol regions"""
         text_regions = []
         
         try:
             doc = fitz.open(str(pdf_file))
+            
+            # Create detection regions for filtering
+            detection_regions = []
+            for page_data in detection_data["pages"]:
+                page_number = page_data.get("page", page_data.get("page_num", 1))
+                page_num = page_number - 1
+                
+                for detection in page_data["detections"]:
+                    bbox = detection.get("bbox_global", detection.get("global_bbox", None))
+                    if isinstance(bbox, dict):
+                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                    if not (isinstance(bbox, list) and len(bbox) == 4):
+                        continue
+                    
+                    try:
+                        x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+                        # Expand detection region by 100% to capture nearby text
+                        width, height = x2 - x1, y2 - y1
+                        expand_x, expand_y = width * 1.0, height * 1.0
+                        
+                        expanded_bbox = (
+                            max(0, x1 - expand_x),
+                            max(0, y1 - expand_y),
+                            x2 + expand_x,
+                            y2 + expand_y
+                        )
+                        detection_regions.append((page_num, expanded_bbox))
+                    except (ValueError, TypeError):
+                        continue
             
             for page_num in range(len(doc)):
                 page = doc[page_num]
@@ -164,17 +223,30 @@ class TextExtractionPipeline:
                             text = span["text"].strip()
                             if text and len(text) > 0:
                                 bbox = span["bbox"]  # x0, y0, x1, y1
+                                text_center_x = (bbox[0] + bbox[2]) / 2
+                                text_center_y = (bbox[1] + bbox[3]) / 2
                                 
-                                text_region = TextRegion(
-                                    text=text,
-                                    confidence=1.0,  # PDF text is always high confidence
-                                    bbox=(bbox[0], bbox[1], bbox[2], bbox[3]),
-                                    source="pdf",
-                                    page=page_num + 1
-                                )
-                                text_regions.append(text_region)
+                                # Check if text is near any detection region
+                                is_near_detection = False
+                                for det_page, det_bbox in detection_regions:
+                                    if det_page == page_num:
+                                        if (det_bbox[0] <= text_center_x <= det_bbox[2] and
+                                            det_bbox[1] <= text_center_y <= det_bbox[3]):
+                                            is_near_detection = True
+                                            break
+                                
+                                if is_near_detection:
+                                    text_region = TextRegion(
+                                        text=text,
+                                        confidence=1.0,  # PDF text is always high confidence
+                                        bbox=(bbox[0], bbox[1], bbox[2], bbox[3]),
+                                        source="pdf",
+                                        page=page_num + 1
+                                    )
+                                    text_regions.append(text_region)
             
             doc.close()
+            print(f"PDF text extraction: Found {len(text_regions)} text regions near detections")
             
         except Exception as e:
             print(f"Warning: Could not extract PDF text: {e}")
@@ -206,10 +278,26 @@ class TextExtractionPipeline:
                 nparr = np.frombuffer(img_data, np.uint8)
                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
+                print(f"Page {page_num + 1} image dimensions: {img.shape} (H x W x C)")
+                
+                # Get original PDF dimensions for coordinate scaling
+                original_width = page_data.get("original_width", img.shape[1] // 2)  # Divide by 2 because of 2x zoom
+                original_height = page_data.get("original_height", img.shape[0] // 2)
+                current_width = img.shape[1] // 2  # Actual PDF width (before 2x zoom)
+                current_height = img.shape[0] // 2  # Actual PDF height (before 2x zoom)
+                
+                # Calculate scaling factors
+                scale_x = current_width / original_width
+                scale_y = current_height / original_height
+                
+                print(f"Coordinate scaling: Original ({original_width}x{original_height}) -> Current ({current_width}x{current_height})")
+                print(f"Scale factors: X={scale_x:.3f}, Y={scale_y:.3f}")
+                
                 # Process each detection region
                 for detection in page_data["detections"]:
-                    # Handle both "global_bbox" and "bbox_global" keys for compatibility
-                    bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+                    # Handle both "bbox_global" and "global_bbox" keys for compatibility
+                    # Detection data uses "bbox_global"
+                    bbox = detection.get("bbox_global", detection.get("global_bbox", None))
                     if isinstance(bbox, dict):
                         bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
                     if not (isinstance(bbox, list) and len(bbox) == 4):
@@ -223,7 +311,8 @@ class TextExtractionPipeline:
                         print(f"Warning: Invalid coordinate values in bbox {bbox}: {e}")
                         continue
                     
-                    # Scale coordinates for 2x zoom
+                    # Scale coordinates from original PDF size to current PDF size, then for 2x zoom
+                    x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
                     x1, y1, x2, y2 = x1 * 2, y1 * 2, x2 * 2, y2 * 2
                     
                     # Expand region by 50% to capture associated text
@@ -235,8 +324,18 @@ class TextExtractionPipeline:
                     roi_x2 = min(img.shape[1], int(x2 + expand_x))
                     roi_y2 = min(img.shape[0], int(y2 + expand_y))
                     
+                    # Validate ROI coordinates
+                    if roi_x1 >= roi_x2 or roi_y1 >= roi_y2:
+                        print(f"Warning: Invalid ROI coordinates: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2})")
+                        continue
+                    
                     # Extract ROI
                     roi = img[roi_y1:roi_y2, roi_x1:roi_x2]
+                    
+                    # Validate ROI is not empty
+                    if roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
+                        print(f"Warning: Empty ROI extracted: shape {roi.shape}")
+                        continue
 
                     # --- DEBUG: Save ROI and print info ---
                     import os
@@ -245,59 +344,140 @@ class TextExtractionPipeline:
                     det_conf = detection.get('confidence', 0)
                     det_class = detection.get('class_name', 'unknown')
                     roi_filename = f"{debug_dir}/page{page_num+1}_class{det_class}_prob{det_conf:.2f}_x{roi_x1}_y{roi_y1}_w{roi_x2-roi_x1}_h{roi_y2-roi_y1}.png"
-                    cv2.imwrite(roi_filename, roi)
-                    print(f"Saved ROI: {roi_filename}, shape: {roi.shape}, bbox: {bbox}, expanded: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2}), confidence: {det_conf}")
+                    
+                    # Only save if ROI is valid
+                    if roi.size > 0 and roi.shape[0] > 0 and roi.shape[1] > 0:
+                        try:
+                            cv2.imwrite(roi_filename, roi)
+                            print(f"Saved ROI: {roi_filename}, shape: {roi.shape}, bbox: {bbox}, expanded: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2}), confidence: {det_conf}")
+                        except Exception as e:
+                            print(f"Warning: Failed to save ROI {roi_filename}: {e}")
+                    else:
+                        print(f"Skipped saving invalid ROI: shape {roi.shape}")
                     # --- END DEBUG ---
                     
-                    if roi.size > 0:
-                        # Run OCR on ROI
-                        try:
-                            ocr_results = self.ocr.ocr(roi, cls=True)
-                        except TypeError:
-                            # Fallback for older PaddleOCR versions
-                            ocr_results = self.ocr.ocr(roi)
+                    if roi.size > 0 and roi.shape[0] > 0 and roi.shape[1] > 0:
+                        # Apply ROI preprocessing if enabled
+                        if self.enable_roi_preprocessing:
+                            debug_path = Path(roi_filename) if self.roi_preprocessor.debug_mode else None
+                            processed_roi = self.roi_preprocessor.preprocess_for_symbol_class(
+                                roi, det_class
+                            )
+                        else:
+                            processed_roi = roi
                         
-                        if ocr_results and ocr_results[0]:
-                            ocr_lines = ocr_results[0]
-                            if not isinstance(ocr_lines, list):
-                                #print(f"Warning: Unexpected OCR result type: {type(ocr_lines)}")
-                                continue
+                        # Run OCR on processed ROI
+                        try:
+                            ocr_results = self.ocr.ocr(processed_roi)
+                        except Exception as e:
+                            print(f"Warning: OCR failed on ROI: {e}")
+                            continue
+                        
+                        if ocr_results and len(ocr_results) > 0:
+                            try:
+                                ocr_result = ocr_results[0]
+                                
+                                # Handle new PaddleOCR format (OCRResult object)
+                                texts, scores, polys = None, None, None
+                                
+                                if hasattr(ocr_result, 'json') and 'res' in ocr_result.json:
+                                    # New format: OCRResult object with nested data
+                                    res_data = ocr_result.json['res']
+                                    if 'rec_texts' in res_data and 'rec_scores' in res_data and 'rec_polys' in res_data:
+                                        texts = res_data['rec_texts']
+                                        scores = res_data['rec_scores']
+                                        polys = res_data['rec_polys']
+                                elif hasattr(ocr_result, 'rec_texts') and hasattr(ocr_result, 'rec_scores') and hasattr(ocr_result, 'rec_polys'):
+                                    # Direct attributes (fallback)
+                                    texts = ocr_result.rec_texts
+                                    scores = ocr_result.rec_scores
+                                    polys = ocr_result.rec_polys
+                                
+                                # Process extracted texts
+                                if texts and scores and polys:
+                                    for text, confidence, bbox_roi in zip(texts, scores, polys):
+                                        if confidence >= self.confidence_threshold and text.strip():
+                                            try:
+                                                # Convert ROI coordinates back to page coordinates
+                                                roi_bbox = np.array(bbox_roi)
+                                                roi_bbox[:, 0] += roi_x1  # Add ROI offset X
+                                                roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
+                                                roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
+                                                
+                                                # Get bounding box
+                                                min_x = float(np.min(roi_bbox[:, 0]))
+                                                min_y = float(np.min(roi_bbox[:, 1]))
+                                                max_x = float(np.max(roi_bbox[:, 0]))
+                                                max_y = float(np.max(roi_bbox[:, 1]))
+                                                
+                                                text_region = TextRegion(
+                                                    text=text.strip(),
+                                                    confidence=float(confidence),
+                                                    bbox=(min_x, min_y, max_x, max_y),
+                                                    source="ocr",
+                                                    page=page_num + 1,
+                                                    associated_symbol=detection
+                                                )
+                                                text_regions.append(text_region)
+                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f})")
+                                            except Exception as e:
+                                                print(f"Warning: Error processing OCR text '{text}': {e}")
+                                                continue
+                                
+                                # Handle old PaddleOCR format (list of lists)
+                                elif isinstance(ocr_result, list):
+                                    for line in ocr_result:
+                                        if not isinstance(line, (list, tuple)):
+                                            continue  # skip metadata/config keys
+                                        
+                                        try:
+                                            if len(line) == 2 and isinstance(line[1], (list, tuple)) and len(line[1]) == 2:
+                                                bbox_roi, (text, confidence) = line
+                                            elif len(line) == 3:
+                                                bbox_roi, text, confidence = line
+                                            else:
+                                                print(f"Warning: Unexpected OCR result format: {line}")
+                                                continue
+                                        except (ValueError, IndexError, TypeError) as e:
+                                            print(f"Warning: Error parsing OCR line {line}: {e}")
+                                            continue
 
-                            for line in ocr_lines:
-                                if not isinstance(line, (list, tuple)):
-                                    continue  # skip metadata/config keys
-                                if len(line) == 2 and isinstance(line[1], (list, tuple)) and len(line[1]) == 2:
-                                    bbox_roi, (text, confidence) = line
-                                elif len(line) == 3:
-                                    bbox_roi, text, confidence = line
+                                        if confidence >= self.confidence_threshold and text.strip():
+                                            try:
+                                                # Convert ROI coordinates back to page coordinates
+                                                roi_bbox = np.array(bbox_roi)
+                                                roi_bbox[:, 0] += roi_x1  # Add ROI offset X
+                                                roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
+                                                roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
+                                                
+                                                # Get bounding box
+                                                min_x = float(np.min(roi_bbox[:, 0]))
+                                                min_y = float(np.min(roi_bbox[:, 1]))
+                                                max_x = float(np.max(roi_bbox[:, 0]))
+                                                max_y = float(np.max(roi_bbox[:, 1]))
+                                                
+                                                text_region = TextRegion(
+                                                    text=text.strip(),
+                                                    confidence=float(confidence),
+                                                    bbox=(min_x, min_y, max_x, max_y),
+                                                    source="ocr",
+                                                    page=page_num + 1,
+                                                    associated_symbol=detection
+                                                )
+                                                text_regions.append(text_region)
+                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f})")
+                                            except Exception as e:
+                                                print(f"Warning: Error processing OCR text '{text}': {e}")
+                                                continue
                                 else:
-                                    print(f"Warning: Unexpected OCR result format: {line}")
-                                    continue
-
-                                if confidence >= self.confidence_threshold and text.strip():
-                                        # Convert ROI coordinates back to page coordinates
-                                        roi_bbox = np.array(bbox_roi)
-                                        roi_bbox[:, 0] += roi_x1  # Add ROI offset X
-                                        roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
-                                        roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
-                                        
-                                        # Get bounding box
-                                        min_x = float(np.min(roi_bbox[:, 0]))
-                                        min_y = float(np.min(roi_bbox[:, 1]))
-                                        max_x = float(np.max(roi_bbox[:, 0]))
-                                        max_y = float(np.max(roi_bbox[:, 1]))
-                                        
-                                        text_region = TextRegion(
-                                            text=text.strip(),
-                                            confidence=float(confidence),
-                                            bbox=(min_x, min_y, max_x, max_y),
-                                            source="ocr",
-                                            page=page_num + 1,
-                                            associated_symbol=detection
-                                        )
-                                        text_regions.append(text_region)
+                                    print(f"Warning: Unexpected OCR result type: {type(ocr_result)}")
+                                    
+                            except Exception as e:
+                                print(f"Warning: Error processing OCR results: {e}")
+                                continue
             
             doc.close()
+            print(f"OCR text extraction: Found {len(text_regions)} text regions from {len(detection_data.get('pages', []))} pages")
             
         except Exception as e:
             print(f"Warning: OCR extraction failed: {e}")
@@ -388,21 +568,30 @@ class TextExtractionPipeline:
         
         for page_data in detection_data["pages"]:
             # Handle both "page" and "page_num" keys for compatibility
-            page_number = page_data.get("page", page_data.get("page_num", 0))
-            if page_number == text_region.page:
+            # Detection data uses "page_num", text data uses "page"
+            page_number = page_data.get("page_num", page_data.get("page", 0))
+            
+            # Ensure both are integers for comparison
+            try:
+                page_number = int(page_number)
+                text_page = int(text_region.page)
+            except (ValueError, TypeError):
+                continue
+                
+            if page_number == text_page:
                 for detection in page_data["detections"]:
-                    # Handle both "global_bbox" and "bbox_global" keys for compatibility
-                    bbox = detection.get("global_bbox", detection.get("bbox_global", None))
+                    # Handle both "bbox_global" and "global_bbox" keys for compatibility
+                    # Detection data uses "bbox_global"
+                    bbox = detection.get("bbox_global", detection.get("global_bbox", None))
                     if isinstance(bbox, dict):
                         bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
                     if not (isinstance(bbox, list) and len(bbox) == 4):
-                        print(f"Warning: Invalid bbox format in detection: {bbox}")
                         continue
                     
                     # Convert coordinates to float to handle string values
                     try:
                         sx1, sy1, sx2, sy2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
-                    except (ValueError, TypeError) as e:
+                    except (ValueError, TypeError):
                         continue
 
                     symbol_center_x = (sx1 + sx2) / 2
@@ -418,8 +607,8 @@ class TextExtractionPipeline:
                         min_distance = distance
                         nearest_symbol = detection
         
-        # Only associate if reasonably close (within 200 pixels)
-        if min_distance < 200:
+        # Only associate if reasonably close (within 300 pixels for large diagrams)
+        if min_distance < 300:
             return nearest_symbol
         
         return None

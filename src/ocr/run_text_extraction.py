@@ -86,7 +86,7 @@ def main():
         print(f"Detection files in {detection_folder}:")
         if detection_files:
             for i, file in enumerate(detection_files, 1):
-                pdf_name = get_pdf_name_from_detection_file(detection_file.name)
+                pdf_name = get_pdf_name_from_detection_file(file.name)
                 pdf_exists = (pdf_folder / pdf_name).exists()
                 status = "✓" if pdf_exists else "✗ (PDF missing)"
                 print(f"  {i:2d}. {file.name} {status}")
