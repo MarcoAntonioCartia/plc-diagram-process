@@ -15,7 +15,7 @@ sys.path.append(str(project_root))
 
 from src.detection.run_complete_pipeline import CompletePipelineRunner
 from src.ocr.text_extraction_pipeline import TextExtractionPipeline
-from src.utils.pdf_enhancer import PDFEnhancer
+from src.utils.detection_text_extraction_pdf_creator import DetectionPDFCreator
 from src.config import get_config
 
 class CompleteTextPipelineRunner(CompletePipelineRunner):
@@ -23,7 +23,7 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
     
     def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), 
                  overlap=500, model_name=None, device=None, ocr_confidence=0.7, ocr_lang="en",
-                 pdf_confidence_threshold=0.8, create_enhanced_pdf=False):
+                 pdf_confidence_threshold=0.8, create_enhanced_pdf=False, enhanced_pdf_version='short', detection_folder=None):
         """
         Initialize the complete pipeline runner with text extraction
         
@@ -38,6 +38,8 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
             ocr_lang: OCR language
             pdf_confidence_threshold: Confidence threshold for PDF enhancement
             create_enhanced_pdf: Whether to create enhanced PDFs
+            enhanced_pdf_version: 'short' (1 page) or 'long' (4 pages) for troubleshooting
+            detection_folder: Custom detection folder path (None for auto-detection)
         """
         super().__init__(epochs, confidence_threshold, snippet_size, overlap, model_name, device)
         
@@ -45,10 +47,58 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
         self.ocr_lang = ocr_lang
         self.pdf_confidence_threshold = pdf_confidence_threshold
         self.create_enhanced_pdf = create_enhanced_pdf
+        self.enhanced_pdf_version = enhanced_pdf_version
+        self.custom_detection_folder = Path(detection_folder) if detection_folder else None
         
         # Add text extraction results tracking
         self.results["text_extraction"] = {}
         self.results["pdf_enhancement"] = {}
+    
+    def _get_effective_detection_folder(self):
+        """Get the effective detection folder (custom or default)"""
+        if self.custom_detection_folder:
+            if self.custom_detection_folder.exists():
+                print(f"Using custom detection folder: {self.custom_detection_folder}")
+                return self.custom_detection_folder
+            else:
+                print(f"Warning: Custom detection folder not found: {self.custom_detection_folder}")
+                print(f"Falling back to default: {self.detdiagrams_folder}")
+                return self.detdiagrams_folder
+        else:
+            return self.detdiagrams_folder
+    
+    def _filter_detections_by_confidence(self, detection_file: Path, min_confidence: float) -> dict:
+        """Filter detection JSON file by confidence threshold"""
+        try:
+            with open(detection_file, 'r') as f:
+                detection_data = json.load(f)
+            
+            original_count = 0
+            filtered_count = 0
+            
+            # Filter detections in each page
+            for page_data in detection_data.get("pages", []):
+                original_detections = page_data.get("detections", [])
+                original_count += len(original_detections)
+                
+                # Filter by confidence
+                filtered_detections = [
+                    det for det in original_detections 
+                    if det.get("confidence", 0.0) >= min_confidence
+                ]
+                
+                page_data["detections"] = filtered_detections
+                filtered_count += len(filtered_detections)
+            
+            print(f"  Confidence filtering: {original_count} → {filtered_count} detections (≥{min_confidence:.1f})")
+            
+            return detection_data
+            
+        except Exception as e:
+            print(f"  Error filtering detections: {e}")
+            # Return original data if filtering fails
+            with open(detection_file, 'r') as f:
+                return json.load(f)
     
     def run_complete_pipeline_with_text(self):
         """
@@ -95,9 +145,13 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
             return False
     
     def _run_text_extraction(self):
-        """Run text extraction on detection results"""
+        """Run text extraction on detection results with custom folder and confidence filtering"""
         
         print(f"Running text extraction with OCR confidence: {self.ocr_confidence}")
+        print(f"Detection confidence threshold: {self.pdf_confidence_threshold}")
+        
+        # Get effective detection folder (custom or default)
+        detection_folder = self._get_effective_detection_folder()
         
         # Initialize text extraction pipeline
         text_pipeline = TextExtractionPipeline(
@@ -106,87 +160,184 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
         )
         
         # Set up paths
-        detection_folder = self.detdiagrams_folder
         pdf_folder = self.diagrams_folder
-        text_output_folder = self.detdiagrams_folder.parent / "text_extraction"
+        text_output_folder = detection_folder.parent / "text_extraction"
+        
+        # Create a temporary folder for filtered detection files
+        filtered_detection_folder = detection_folder.parent / "filtered_detections_temp"
+        filtered_detection_folder.mkdir(exist_ok=True)
         
         text_start = time.time()
         
-        # Run text extraction
-        text_summary = text_pipeline.process_detection_folder(
-            detection_folder, pdf_folder, text_output_folder
-        )
-        
-        text_time = time.time() - text_start
-        
-        # Store text extraction results
-        self.results["text_extraction"] = {
-            "extraction_time": text_time,
-            "ocr_confidence": self.ocr_confidence,
-            "ocr_language": self.ocr_lang,
-            "processed_files": text_summary["processed_files"],
-            "total_text_regions": text_summary["total_text_regions"],
-            "output_folder": str(text_output_folder),
-            "summary": text_summary
-        }
-        
-        print(f"Text extraction completed in {text_time:.2f} seconds")
-        print(f"Processed {text_summary['processed_files']} files")
-        print(f"Extracted {text_summary['total_text_regions']} text regions")
+        try:
+            # Filter detection files by confidence threshold
+            detection_files = list(detection_folder.glob("*_detections.json"))
+            print(f"Processing {len(detection_files)} detection files...")
+            
+            for detection_file in detection_files:
+                print(f"Processing {detection_file.name}...")
+                
+                # Filter detections by confidence
+                filtered_data = self._filter_detections_by_confidence(
+                    detection_file, self.pdf_confidence_threshold
+                )
+                
+                # Save filtered data to temporary folder
+                filtered_file = filtered_detection_folder / detection_file.name
+                with open(filtered_file, 'w') as f:
+                    json.dump(filtered_data, f, indent=2)
+            
+            # Run text extraction on filtered detection files
+            text_summary = text_pipeline.process_detection_folder(
+                filtered_detection_folder, pdf_folder, text_output_folder
+            )
+            
+            text_time = time.time() - text_start
+            
+            # Store text extraction results
+            self.results["text_extraction"] = {
+                "extraction_time": text_time,
+                "ocr_confidence": self.ocr_confidence,
+                "ocr_language": self.ocr_lang,
+                "detection_confidence_threshold": self.pdf_confidence_threshold,
+                "custom_detection_folder": str(detection_folder) if self.custom_detection_folder else None,
+                "processed_files": text_summary["processed_files"],
+                "total_text_regions": text_summary["total_text_regions"],
+                "output_folder": str(text_output_folder),
+                "summary": text_summary
+            }
+            
+            print(f"Text extraction completed in {text_time:.2f} seconds")
+            print(f"Processed {text_summary['processed_files']} files")
+            print(f"Extracted {text_summary['total_text_regions']} text regions")
+            
+        finally:
+            # Clean up temporary filtered detection files
+            try:
+                import shutil
+                shutil.rmtree(filtered_detection_folder)
+                print(f"Cleaned up temporary folder: {filtered_detection_folder}")
+            except Exception as e:
+                print(f"Warning: Could not clean up temporary folder: {e}")
         
         return text_summary
     
     def _run_enhanced_pdf_creation(self):
-        """Create enhanced PDFs with detection boxes and text extraction"""
+        """Create enhanced PDFs with detection boxes and text extraction using PNG-first approach"""
         
         if not self.create_enhanced_pdf:
             return
         
-        print(f"Creating enhanced PDFs with confidence threshold: {self.pdf_confidence_threshold:.0%}")
+        print(f"Creating enhanced PDFs using PNG-first approach (version: {self.enhanced_pdf_version})...")
         
-        # Initialize PDF enhancer
-        enhancer = PDFEnhancer(
-            font_size=10,
-            line_width=1.5,
-            confidence_threshold=self.pdf_confidence_threshold
-        )
+        # Initialize your new PDF creator
+        pdf_creator = DetectionPDFCreator(font_size=10)
+        
+        # Get effective detection folder (custom or default)
+        detection_folder = self._get_effective_detection_folder()
         
         # Set up paths
-        detection_folder = self.detdiagrams_folder
-        text_extraction_folder = self.detdiagrams_folder.parent / "text_extraction"
-        pdf_folder = self.diagrams_folder
-        enhanced_pdf_folder = self.detdiagrams_folder.parent / "enhanced_pdfs"
+        text_extraction_folder = detection_folder.parent / "text_extraction"
+        enhanced_pdf_folder = detection_folder.parent / "enhanced_pdfs"
+        enhanced_pdf_folder.mkdir(parents=True, exist_ok=True)
         
         pdf_start = time.time()
         
-        # Run batch PDF enhancement
-        enhancement_summary = enhancer.enhance_folder_batch(
-            detection_folder,
-            text_extraction_folder,
-            pdf_folder,
-            enhanced_pdf_folder,
-            mode='complete'
-        )
+        # Find PNG images created during detection pipeline
+        png_files = list(detection_folder.glob("*_page_*_detected.png"))
+        
+        if not png_files:
+            print("Warning: No PNG files found from detection pipeline")
+            return {"processed_files": 0, "error": "No PNG files found"}
+        
+        print(f"Found {len(png_files)} PNG files to process")
+        
+        # Group PNG files by PDF name
+        pdf_groups = {}
+        for png_file in png_files:
+            # Extract PDF name from PNG filename: {pdf_name}_page_{page_num}_detected.png
+            pdf_name = png_file.name.split('_page_')[0]
+            if pdf_name not in pdf_groups:
+                pdf_groups[pdf_name] = []
+            pdf_groups[pdf_name].append(png_file)
+        
+        processed_count = 0
+        enhancement_results = []
+        
+        # Process each PDF
+        for pdf_name, png_list in pdf_groups.items():
+            print(f"Processing {pdf_name}...")
+            
+            # Find corresponding JSON files
+            detection_file = detection_folder / f"{pdf_name}_detections.json"
+            text_file = text_extraction_folder / f"{pdf_name}_text_extraction.json"
+            
+            if not detection_file.exists():
+                print(f"  Warning: Detection file not found: {detection_file}")
+                continue
+            
+            if not text_file.exists():
+                print(f"  Warning: Text file not found: {text_file}")
+                continue
+            
+            # Use the first PNG (typically one per PDF)
+            image_file = png_list[0]
+            
+            # Create enhanced PDF
+            output_file = enhanced_pdf_folder / f"{pdf_name}_enhanced.pdf"
+            
+            try:
+                # Use configured version (default 'short', can be changed to 'long' for troubleshooting)
+                result_pdf = pdf_creator.create_enhanced_pdf(
+                    image_file=image_file,
+                    detections_file=detection_file,
+                    text_file=text_file,
+                    output_file=output_file,
+                    version=self.enhanced_pdf_version
+                )
+                
+                enhancement_results.append({
+                    "pdf_name": pdf_name,
+                    "image_file": str(image_file),
+                    "detection_file": str(detection_file),
+                    "text_file": str(text_file),
+                    "enhanced_pdf": str(result_pdf),
+                    "version": self.enhanced_pdf_version,
+                    "status": "success"
+                })
+                
+                processed_count += 1
+                print(f"  ✓ Created: {output_file.name} ({self.enhanced_pdf_version} version)")
+                
+            except Exception as e:
+                print(f"  ✗ Failed to create {output_file.name}: {e}")
+                enhancement_results.append({
+                    "pdf_name": pdf_name,
+                    "status": "failed",
+                    "error": str(e)
+                })
+                continue
         
         pdf_time = time.time() - pdf_start
         
         # Store PDF enhancement results
         self.results["pdf_enhancement"] = {
             "enhancement_time": pdf_time,
-            "pdf_confidence_threshold": self.pdf_confidence_threshold,
-            "processed_files": enhancement_summary["processed"],
-            "total_files": enhancement_summary["total_files"],
-            "success_rate": enhancement_summary["success_rate"],
+            "method": "png_first",
+            "version": self.enhanced_pdf_version,
+            "processed_files": processed_count,
+            "total_files": len(pdf_groups),
+            "success_rate": (processed_count / len(pdf_groups) * 100) if pdf_groups else 0,
             "output_folder": str(enhanced_pdf_folder),
-            "summary": enhancement_summary
+            "results": enhancement_results
         }
         
         print(f"Enhanced PDF creation completed in {pdf_time:.2f} seconds")
-        print(f"Created {enhancement_summary['processed']} enhanced PDFs")
-        print(f"Success rate: {enhancement_summary['success_rate']:.1f}%")
+        print(f"Created {processed_count}/{len(pdf_groups)} enhanced PDFs")
+        print(f"Success rate: {self.results['pdf_enhancement']['success_rate']:.1f}%")
         print(f"Enhanced PDFs saved to: {enhanced_pdf_folder}")
         
-        return enhancement_summary
+        return self.results["pdf_enhancement"]
     
     def run_text_extraction_only(self):
         """Run only text extraction and PDF enhancement (skip detection)"""
@@ -382,6 +533,10 @@ def main():
                        help='Create enhanced PDFs with detection boxes and text extraction')
     parser.add_argument('--pdf-confidence-threshold', type=float, default=0.8,
                        help='Confidence threshold for showing detection boxes in enhanced PDFs (default: 0.8)')
+    parser.add_argument('--enhanced-pdf-version', type=str, choices=['short', 'long'], 
+                       default='short', help='Enhanced PDF version: short (1 page) or long (4 pages) for troubleshooting')
+    parser.add_argument('--detection-folder', type=str, default=None,
+                       help='Custom detection folder path (default: auto-detected based on pipeline)')
     
     args = parser.parse_args()
     
@@ -402,7 +557,9 @@ def main():
             ocr_confidence=args.ocr_confidence,
             ocr_lang=args.ocr_lang,
             pdf_confidence_threshold=args.pdf_confidence_threshold,
-            create_enhanced_pdf=args.create_enhanced_pdf
+            create_enhanced_pdf=args.create_enhanced_pdf,
+            enhanced_pdf_version=args.enhanced_pdf_version,
+            detection_folder=args.detection_folder
         )
         
         # Handle skip-detection mode
