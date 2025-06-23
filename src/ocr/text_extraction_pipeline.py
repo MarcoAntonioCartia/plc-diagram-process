@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from paddleocr import PaddleOCR
+import torch
 
 # Import our new modules
 from .detection_deduplication import deduplicate_detections, analyze_detection_overlaps
@@ -43,9 +44,32 @@ class TextExtractionPipeline:
     3. Smart fusion and PLC pattern recognition
     """
     
+    def _get_device(self, device: Optional[str]) -> str:
+        """
+        Determines the appropriate compute device ('gpu' or 'cpu').
+        If a device is specified, it's used. Otherwise, it checks for
+        CUDA availability with PyTorch.
+        """
+        if device:
+            print(f"Device specified: {device}")
+            return device
+        
+        try:
+            if torch.cuda.is_available():
+                print("CUDA is available. Setting device to 'gpu'.")
+                return 'gpu'
+            else:
+                print("CUDA not available. Setting device to 'cpu'.")
+                return 'cpu'
+        except Exception as e:
+            print(f"Could not determine CUDA availability: {e}. Defaulting to 'cpu'.")
+            return 'cpu'
+
     def __init__(self, confidence_threshold: float = 0.5, ocr_lang: str = "en", 
                  enable_nms: bool = True, nms_iou_threshold: float = 0.5,
-                 enable_roi_preprocessing: bool = False):
+                 enable_roi_preprocessing: bool = False,
+                 perform_deduplication: bool = True, deduplication_iou_threshold: float = 0.5,
+                 device: str = 'gpu'):
         """
         Initialize the text extraction pipeline
         
@@ -55,12 +79,19 @@ class TextExtractionPipeline:
             enable_nms: Whether to apply Non-Maximum Suppression to remove overlapping detections
             nms_iou_threshold: IoU threshold for NMS
             enable_roi_preprocessing: Whether to apply ROI preprocessing for better OCR
+            perform_deduplication: Whether to perform detection deduplication
+            deduplication_iou_threshold: IoU threshold for detection deduplication
+            device: Device to use for PaddleOCR ('gpu' or 'cpu')
         """
         self.confidence_threshold = confidence_threshold
         self.ocr_lang = ocr_lang
         self.enable_nms = enable_nms
         self.nms_iou_threshold = nms_iou_threshold
         self.enable_roi_preprocessing = enable_roi_preprocessing
+        self.perform_deduplication = perform_deduplication
+        self.deduplication_iou_threshold = deduplication_iou_threshold
+        
+        self.device = self._get_device(device)
         
         # Initialize ROI preprocessor
         if self.enable_roi_preprocessing:
@@ -69,22 +100,28 @@ class TextExtractionPipeline:
         
         # Initialize PaddleOCR with version compatibility
         try:
-            # Try PP-OCRv5 first (newest)
             print("Trying PP-OCRv5...")
-            self.ocr = PaddleOCR(ocr_version="PP-OCRv5", lang=ocr_lang, use_angle_cls=True)
+            # Attempt to initialize PaddleOCR with PP-OCRv5, explicitly setting the device
+            self.ocr = PaddleOCR(ocr_version="PP-OCRv5", lang=ocr_lang, use_angle_cls=True, device=self.device)
             print("✓ PP-OCRv5 initialized successfully!")
         except Exception as e:
+            print(f"PP-OCRv5 initialization failed: {e}")
             try:
-                # Fallback to PP-OCRv4
                 print("PP-OCRv5 not available, trying PP-OCRv4...")
-                self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True)
-                print("✓ PP-OCRv4 initialized successfully!")
+                # Fallback to PP-OCRv4, also explicitly setting the device
+                self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True, device=self.device)
             except Exception as e2:
-                # Fallback to default version
-                print("PP-OCRv4 not available, using default version...")
-                self.ocr = PaddleOCR(lang=ocr_lang)
-                print("✓ Default PaddleOCR version initialized!")     
-
+                print(f"PP-OCRv4 initialization failed: {e2}")
+                try:
+                    print("PP-OCRv4 not available, using default version...")
+                    # Fallback to the default, also explicitly setting the device
+                    # Note: Default PaddleOCR uses 'use_gpu' flag instead of 'device'
+                    use_gpu_flag = True if self.device == 'gpu' else False
+                    self.ocr = PaddleOCR(lang=ocr_lang, use_gpu=use_gpu_flag, use_angle_cls=True)
+                except Exception as e3:
+                    print("\n" + "="*50)
+                    print("FATAL: All PaddleOCR initialization attempts failed.")
+        
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
             PLCTextPattern("input", r"I\d+\.\d+", 10, "Input addresses (I0.1, I1.2, etc.)"),

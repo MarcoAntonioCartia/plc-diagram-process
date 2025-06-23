@@ -3,11 +3,59 @@ Complete PLC Pipeline with Text Extraction
 Runs the entire pipeline: Training → Detection → Text Extraction
 """
 
+import os
 import sys
 import time
 import json
 import argparse
 from pathlib import Path
+
+# --- BEGIN GPU PATH FIX ---
+# This block fixes a common issue on Windows where a system-wide CUDA installation
+# conflicts with Paddle's bundled CUDA libraries. It works by finding the correct
+# library paths inside the virtual environment and prepending them to the system's
+# PATH, ensuring they are loaded first.
+def _apply_gpu_path_fix():
+    """Dynamically finds and prepends bundled GPU library paths to the system PATH."""
+    try:
+        if sys.platform != "win32":
+            return # This fix is only for Windows
+
+        # Find the root of the virtual environment
+        venv_path = Path(sys.executable).parent.parent
+        site_packages = venv_path / "Lib" / "site-packages"
+
+        if not site_packages.is_dir():
+            return
+
+        # Define the essential paths for Paddle's bundled libraries
+        bundled_paths_to_add = [
+            site_packages / "nvidia" / "cuda_runtime" / "bin",
+            site_packages / "nvidia" / "cudnn" / "bin",
+            site_packages / "nvidia" / "cublas" / "bin",
+            site_packages / "paddle" / "libs",
+        ]
+        
+        found_paths = [str(p) for p in bundled_paths_to_add if p.is_dir()]
+
+        if not found_paths:
+            return
+
+        # Prepend the found paths to the system's PATH environment variable
+        original_path = os.environ.get("PATH", "")
+        new_path = os.pathsep.join(found_paths) + os.pathsep + original_path
+        os.environ["PATH"] = new_path
+        
+        # Optional: uncomment the line below for verification during startup
+        # print("GPU Path Fix: Successfully prioritized bundled CUDA libraries.")
+
+    except Exception:
+        # Silently ignore errors in the patch, as it's an enhancement
+        pass
+
+# Apply the fix at the very start of the application, before any other imports
+_apply_gpu_path_fix()
+# --- END GPU PATH FIX ---
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent
