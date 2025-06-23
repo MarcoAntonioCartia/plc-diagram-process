@@ -3,12 +3,98 @@ Complete PLC Pipeline with Text Extraction
 Runs the entire pipeline: Training → Detection → Text Extraction
 """
 
+# Standard libs
 import os
 import sys
 import time
 import json
 import argparse
 from pathlib import Path
+
+# ------------------------------------------------------------------
+# OPTIONAL TORCH STUB
+# ------------------------------------------------------------------
+# `ultralytics` and several detection helpers hard-import torch.  When the
+# user runs the pipeline with `--skip-detection`, we don't actually need
+# torch, but those import statements still execute.  To avoid a hard crash
+# we create a minimal stub that satisfies the attribute look-ups used during
+# module import (mainly `torch.cuda.is_available`).  The real detection code
+# will fail loudly later if someone tries to *use* torch without installing
+# it.
+
+try:
+    import torch  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover – optional dependency
+    class _CudaStub:
+        @staticmethod
+        def is_available() -> bool:  # noqa: D401
+            return False
+
+    class _TorchStub:
+        __version__ = "0.0.0-stub"
+        cuda = _CudaStub()
+
+        def __getattr__(self, name):
+            # Always return a harmless no-op callable or placeholder so that
+            # import-time side-effects inside external libraries don't crash.
+            if name.isupper():
+                return name  # dtype constant placeholders
+
+            def _noop(*_a, **_kw):  # noqa: D401
+                # Accessing most torch APIs without torch installed is an error
+                # at *runtime*, but during --skip-detection startup we tolerate it.
+                return None
+
+            # Provide a minimal torch.distributed submodule when requested
+            if name == "distributed":
+                import types, sys as _sys
+                import importlib.machinery as _mach
+                dist_mod = types.ModuleType("torch.distributed")
+                dist_mod.is_available = lambda: False  # type: ignore
+                dist_mod.is_initialized = lambda: False  # type: ignore
+                dist_mod.init_process_group = _noop  # type: ignore
+                dist_mod.destroy_process_group = _noop  # type: ignore
+                dist_mod.__path__ = []  # type: ignore
+                dist_mod.__spec__ = _mach.ModuleSpec(name="torch.distributed", loader=None)
+                _sys.modules["torch.distributed"] = dist_mod
+                return dist_mod
+
+            return _noop
+
+    sys.modules["torch"] = _TorchStub()  # type: ignore
+
+# ------------------------------------------------------------------
+# Monkey-patch importlib.metadata.version early so any subsequent imports
+# (e.g., ultralytics) that query torchvision / torchaudio versions do not
+# raise PackageNotFoundError when those packages are absent.
+# ------------------------------------------------------------------
+import importlib.metadata as _ilm
+
+_orig_version = _ilm.version
+
+def _safe_version(package: str):  # noqa: D401
+    """Safe wrapper around importlib.metadata.version.
+
+    We only spoof version strings for extremely common heavy packages that we
+    purposefully stub out (torch, torchvision, torchaudio). For any *other*
+    package we simply defer to the original implementation and allow it to
+    raise PackageNotFoundError if the package is missing.  Down-stream code
+    (like PaddleXʼs dependency helper) expects that behaviour to reliably
+    detect absent optional dependencies.  Swallowing *all* errors (the old
+    behaviour) inadvertently convinced PaddleX that the `soundfile` package
+    was installed even when it was not, leading to an import failure further
+    down the line.
+    """
+
+    if package in {"torch", "torchvision", "torchaudio"}:
+        # These packages are intentionally stubbed, so we pretend they exist.
+        return "0.0.0-stub"
+
+    # For every other package, use the original implementation and propagate
+    # the PackageNotFoundError so callers can detect missing dependencies.
+    return _orig_version(package)
+
+_ilm.version = _safe_version  # type: ignore
 
 # --- BEGIN GPU PATH FIX ---
 # This block fixes a common issue on Windows where a system-wide CUDA installation
@@ -61,7 +147,83 @@ _apply_gpu_path_fix()
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
-from src.detection.run_complete_pipeline import CompletePipelineRunner
+# Detect if user passed --skip-detection early so we can avoid importing
+# heavyweight YOLO/Ultralytics stack when it's not required.
+_SKIP_DETECTION = "--skip-detection" in sys.argv
+
+# -------------------------------------------------------------
+# Lazy / conditional import to avoid ultralytics if detection is skipped
+# -------------------------------------------------------------
+
+if _SKIP_DETECTION:
+    class _DummyRunner:  # pragma: no cover
+        def __init__(self, *a, **kw):
+            """Light-weight stand-in for CompletePipelineRunner when detection is skipped.
+
+            It sets up just enough state so that the text-extraction layer that
+            derives from it can run without hitting attribute errors.  We avoid
+            any heavyweight imports (Ultralytics / torch) and do **not** perform
+            dataset validation or training.
+            """
+
+            # Project & config
+            from pathlib import Path  # local import to keep top-level pristine
+            from src.config import get_config  # deferred; cheap and torch-free
+
+            self.project_root = Path(__file__).resolve().parent.parent
+
+            # Basic config paths (match the ones in the real runner)
+            cfg = get_config()
+            data_root = Path(cfg.config["data_root"])
+            self.diagrams_folder = data_root / "raw" / "pdfs"
+            self.images_folder = data_root / "processed" / "images"
+            self.detdiagrams_folder = data_root / "processed" / "detdiagrams"
+
+            # Ensure output directories exist so later code can write to them
+            self.images_folder.mkdir(parents=True, exist_ok=True)
+            self.detdiagrams_folder.mkdir(parents=True, exist_ok=True)
+
+            # Minimal results skeleton expected by downstream methods
+            self.results = {
+                "training": {},
+                "detection": {},
+                "reconstruction": {},
+                "summary": {},
+            }
+
+        # The training / detection phases are intentionally unavailable in
+        # skip-detection mode.
+        def run_complete_pipeline(self):  # noqa: D401
+            print("Detection skipped; full pipeline not available without torch.")
+            return False
+
+        def run_text_extraction_only(self):
+            print("Detection skipped (dummy runner). No detection pipeline available without torch.")
+            return False
+
+    CompletePipelineRunner = _DummyRunner  # type: ignore
+else:
+    from src.detection.run_complete_pipeline import CompletePipelineRunner
+
+# ------------------------------------------------------------------
+# Stub out optional heavy dependencies that PaddleOCR -> PaddleX may try
+# to import (e.g., pycocotools) when those packages are not installed.
+# ------------------------------------------------------------------
+
+import types as _types, sys as _sys
+
+if "pycocotools" not in _sys.modules:
+    _pc_root = _types.ModuleType("pycocotools")
+    _sys.modules["pycocotools"] = _pc_root
+
+    _pc_coco = _types.ModuleType("pycocotools.coco")
+    class _DummyCOCO:  # noqa: D401
+        def __init__(self, *a, **kw):
+            raise RuntimeError("pycocotools is not installed; COCO functionality unavailable.")
+
+    _pc_coco.COCO = _DummyCOCO  # type: ignore
+    _sys.modules["pycocotools.coco"] = _pc_coco
+
 from src.ocr.text_extraction_pipeline import TextExtractionPipeline
 from src.utils.detection_text_extraction_pdf_creator import DetectionPDFCreator
 from src.config import get_config

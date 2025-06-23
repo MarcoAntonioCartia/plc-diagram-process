@@ -49,18 +49,35 @@ class TextExtractionPipeline:
         If a device is specified, it's used. Otherwise, it defaults to 'gpu'.
         """
         if device:
-            print(f"Device specified: {device}")
+            print(f"Device specified via parameter: {device}")
             return device
-        
-        # Default to GPU since PaddleOCR will handle CPU fallback internally
-        print("No device specified. Defaulting to 'gpu' (PaddleOCR will fallback to CPU if needed).")
-        return 'gpu'
+
+        # Autodetect: prefer first CUDA device when Paddle is compiled with
+        # GPU support; otherwise fall back to CPU.
+        try:
+            import paddle
+
+            if paddle.device.is_compiled_with_cuda():
+                gpu_count = paddle.device.cuda.device_count()
+                if gpu_count > 0:
+                    first_gpu = paddle.device.cuda.current_device()
+                    dev_str = f"gpu:{first_gpu}"
+                    print(f"CUDA detected with {gpu_count} device(s). Selecting '{dev_str}'.")
+                    return dev_str
+                else:
+                    print("Paddle compiled with CUDA but no physical GPU detected -> CPU fallback.")
+                    return 'cpu'
+        except Exception as e:
+            # If paddle itself is not available yet or any error happens, be
+            # conservative and use CPU.
+            print(f"Warning: Unable to query paddle for CUDA capability ({e}). Falling back to CPU.")
+            return 'cpu'
 
     def __init__(self, confidence_threshold: float = 0.5, ocr_lang: str = "en", 
                  enable_nms: bool = True, nms_iou_threshold: float = 0.5,
                  enable_roi_preprocessing: bool = False,
                  perform_deduplication: bool = True, deduplication_iou_threshold: float = 0.5,
-                 device: str = 'cpu'):
+                 device: Optional[str] = None):
         """
         Initialize the text extraction pipeline
         
@@ -82,9 +99,9 @@ class TextExtractionPipeline:
         self.perform_deduplication = perform_deduplication
         self.deduplication_iou_threshold = deduplication_iou_threshold
         
-        # 🔧 FORCE CPU MODE FOR DEBUGGING
-        print("🔧 DEBUG MODE: Forcing CPU for PaddleOCR initialization")
-        self.device = 'cpu'
+        # Decide compute device (GPU preferred if available)
+        self.device = self._get_device(device)
+        print(f"Using '{self.device}' device for PaddleOCR (fallback handled automatically).")
         
         # Initialize ROI preprocessor
         if self.enable_roi_preprocessing:
@@ -95,35 +112,52 @@ class TextExtractionPipeline:
         self.ocr = None
         self.ocr_available = False
         
-        print("🔧 DEBUG MODE: Initializing PaddleOCR in CPU-only mode...")
-        
+        # -------------------------------------------------------------
+        # Try to initialise PaddleOCR with GPU first, gracefully
+        # falling back to CPU if anything goes wrong.  This supports
+        # both the new `device` API and the legacy `use_gpu` flag.
+        # -------------------------------------------------------------
+
+        # -------- 1st attempt: preferred device (gpu/cpu) via new API --------
         try:
-            # For newer PaddleOCR versions, use 'device' parameter instead of 'use_gpu'
-            print("Trying with device='cpu' parameter...")
-            self.ocr = PaddleOCR(lang=ocr_lang, device='cpu', use_textline_orientation=True)
+            print(f"Trying PaddleOCR initialisation with device='{self.device}' …")
+            self.ocr = PaddleOCR(lang=ocr_lang, device=self.device, use_textline_orientation=True)
             self.ocr_available = True
-            print("✓ PaddleOCR initialized successfully with device='cpu'!")
+            print(f"✓ PaddleOCR initialised successfully on {self.device.upper()}!")
         except Exception as e:
-            print(f"Device parameter failed: {e}")
+            print(f"Initialisation with device parameter failed: {e}")
+
+            # -------- 2nd attempt: legacy API with explicit GPU flag --------
             try:
-                # Fallback: Try without any device specification (should default to CPU)
-                print("Trying without device specification...")
-                self.ocr = PaddleOCR(lang=ocr_lang, use_textline_orientation=True)
+                legacy_gpu_flag = self.device == 'gpu'
+                print(f"Trying legacy initialisation with use_gpu={legacy_gpu_flag} …")
+                self.ocr = PaddleOCR(lang=ocr_lang, use_gpu=legacy_gpu_flag, use_textline_orientation=True)
                 self.ocr_available = True
-                print("✓ PaddleOCR initialized successfully without device specification!")
+                dev_str = 'GPU' if legacy_gpu_flag else 'CPU'
+                print(f"✓ PaddleOCR initialised successfully with legacy flag on {dev_str}!")
             except Exception as e2:
-                print(f"Default initialization failed: {e2}")
+                print(f"Legacy initialisation failed: {e2}")
+
+                # -------- 3rd attempt: force CPU device --------
                 try:
-                    # Last resort: Minimal parameters
-                    print("Trying with minimal parameters...")
-                    self.ocr = PaddleOCR(lang=ocr_lang)
+                    print("Trying explicit CPU initialisation to guarantee fallback …")
+                    self.ocr = PaddleOCR(lang=ocr_lang, device='cpu', use_textline_orientation=True)
                     self.ocr_available = True
-                    print("✓ PaddleOCR initialized successfully with minimal parameters!")
+                    print("✓ PaddleOCR initialised successfully on CPU!")
                 except Exception as e3:
-                    print(f"❌ FATAL: All PaddleOCR initialization attempts failed: {e3}")
-                    print("Setting OCR to None - text extraction will use PDF text only.")
-                    self.ocr = None
-                    self.ocr_available = False
+                    print(f"CPU explicit initialisation failed: {e3}")
+
+                    # -------- Final attempt: minimal parameters (defaults to CPU) --------
+                    try:
+                        print("Trying with minimal parameters …")
+                        self.ocr = PaddleOCR(lang=ocr_lang)
+                        self.ocr_available = True
+                        print("✓ PaddleOCR initialised successfully with minimal parameters (CPU)!")
+                    except Exception as e4:
+                        print(f"❌ FATAL: All PaddleOCR initialization attempts failed: {e4}")
+                        print("Setting OCR to None - text extraction will use PDF text only.")
+                        self.ocr = None
+                        self.ocr_available = False
         
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
