@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from paddleocr import PaddleOCR
-import torch
 
 # Import our new modules
 from .detection_deduplication import deduplicate_detections, analyze_detection_overlaps
@@ -47,29 +46,21 @@ class TextExtractionPipeline:
     def _get_device(self, device: Optional[str]) -> str:
         """
         Determines the appropriate compute device ('gpu' or 'cpu').
-        If a device is specified, it's used. Otherwise, it checks for
-        CUDA availability with PyTorch.
+        If a device is specified, it's used. Otherwise, it defaults to 'gpu'.
         """
         if device:
             print(f"Device specified: {device}")
             return device
         
-        try:
-            if torch.cuda.is_available():
-                print("CUDA is available. Setting device to 'gpu'.")
-                return 'gpu'
-            else:
-                print("CUDA not available. Setting device to 'cpu'.")
-                return 'cpu'
-        except Exception as e:
-            print(f"Could not determine CUDA availability: {e}. Defaulting to 'cpu'.")
-            return 'cpu'
+        # Default to GPU since PaddleOCR will handle CPU fallback internally
+        print("No device specified. Defaulting to 'gpu' (PaddleOCR will fallback to CPU if needed).")
+        return 'gpu'
 
     def __init__(self, confidence_threshold: float = 0.5, ocr_lang: str = "en", 
                  enable_nms: bool = True, nms_iou_threshold: float = 0.5,
                  enable_roi_preprocessing: bool = False,
                  perform_deduplication: bool = True, deduplication_iou_threshold: float = 0.5,
-                 device: str = 'gpu'):
+                 device: str = 'cpu'):
         """
         Initialize the text extraction pipeline
         
@@ -91,36 +82,48 @@ class TextExtractionPipeline:
         self.perform_deduplication = perform_deduplication
         self.deduplication_iou_threshold = deduplication_iou_threshold
         
-        self.device = self._get_device(device)
+        # 🔧 FORCE CPU MODE FOR DEBUGGING
+        print("🔧 DEBUG MODE: Forcing CPU for PaddleOCR initialization")
+        self.device = 'cpu'
         
         # Initialize ROI preprocessor
         if self.enable_roi_preprocessing:
             self.roi_preprocessor = ROIPreprocessor()
             self.roi_preprocessor.set_debug_mode(True)  # Enable debug mode for now
         
-        # Initialize PaddleOCR with version compatibility
+        # Initialize PaddleOCR with correct parameters for your version
+        self.ocr = None
+        self.ocr_available = False
+        
+        print("🔧 DEBUG MODE: Initializing PaddleOCR in CPU-only mode...")
+        
         try:
-            print("Trying PP-OCRv5...")
-            # Attempt to initialize PaddleOCR with PP-OCRv5, explicitly setting the device
-            self.ocr = PaddleOCR(ocr_version="PP-OCRv5", lang=ocr_lang, use_angle_cls=True, device=self.device)
-            print("✓ PP-OCRv5 initialized successfully!")
+            # For newer PaddleOCR versions, use 'device' parameter instead of 'use_gpu'
+            print("Trying with device='cpu' parameter...")
+            self.ocr = PaddleOCR(lang=ocr_lang, device='cpu', use_textline_orientation=True)
+            self.ocr_available = True
+            print("✓ PaddleOCR initialized successfully with device='cpu'!")
         except Exception as e:
-            print(f"PP-OCRv5 initialization failed: {e}")
+            print(f"Device parameter failed: {e}")
             try:
-                print("PP-OCRv5 not available, trying PP-OCRv4...")
-                # Fallback to PP-OCRv4, also explicitly setting the device
-                self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True, device=self.device)
+                # Fallback: Try without any device specification (should default to CPU)
+                print("Trying without device specification...")
+                self.ocr = PaddleOCR(lang=ocr_lang, use_textline_orientation=True)
+                self.ocr_available = True
+                print("✓ PaddleOCR initialized successfully without device specification!")
             except Exception as e2:
-                print(f"PP-OCRv4 initialization failed: {e2}")
+                print(f"Default initialization failed: {e2}")
                 try:
-                    print("PP-OCRv4 not available, using default version...")
-                    # Fallback to the default, also explicitly setting the device
-                    # Note: Default PaddleOCR uses 'use_gpu' flag instead of 'device'
-                    use_gpu_flag = True if self.device == 'gpu' else False
-                    self.ocr = PaddleOCR(lang=ocr_lang, use_gpu=use_gpu_flag, use_angle_cls=True)
+                    # Last resort: Minimal parameters
+                    print("Trying with minimal parameters...")
+                    self.ocr = PaddleOCR(lang=ocr_lang)
+                    self.ocr_available = True
+                    print("✓ PaddleOCR initialized successfully with minimal parameters!")
                 except Exception as e3:
-                    print("\n" + "="*50)
-                    print("FATAL: All PaddleOCR initialization attempts failed.")
+                    print(f"❌ FATAL: All PaddleOCR initialization attempts failed: {e3}")
+                    print("Setting OCR to None - text extraction will use PDF text only.")
+                    self.ocr = None
+                    self.ocr_available = False
         
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
@@ -293,6 +296,11 @@ class TextExtractionPipeline:
     def _extract_ocr_text_from_regions(self, detection_data: Dict, pdf_file: Path) -> List[TextRegion]:
         """Extract text using OCR from detected symbol regions"""
         text_regions = []
+        
+        # Safety check: If OCR is not available, return empty list
+        if not self.ocr_available or self.ocr is None:
+            print("Warning: OCR not available - skipping OCR text extraction")
+            return text_regions
         
         try:
             # Convert PDF pages to images for OCR

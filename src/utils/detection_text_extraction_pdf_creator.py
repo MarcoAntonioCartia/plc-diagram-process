@@ -112,21 +112,58 @@ class DetectionPDFCreator(BasicPDFCreator):
         self._add_page_title(page, "Enhanced PLC Diagram - Combined View", 1)
 
     def _draw_detections(self, page: fitz.Page, detections: List[Dict]):
-        """Draws detection boxes directly onto the page."""
+        """Draws detection boxes and their labels onto the page."""
         for det in detections:
             bbox = det.get('bbox')
+            label = det.get('label', '')
+            confidence = det.get('confidence', 0.0)
+            
             if not bbox: continue
             
-            # No scaling or rotation needed. Coordinates are used directly.
             rect = fitz.Rect(bbox)
             page.draw_rect(rect, color=self.colors['detection_box'], width=self.line_width)
+            
+            label_text = f"{label} ({confidence:.2f})"
+            
+            # Insert text at the top-left corner, inside the box
+            text_insertion_point = fitz.Point(bbox[0] + 2, bbox[1] + self.font_size)
+            
+            # Draw a background for the text for better readability
+            text_len = fitz.get_text_length(label_text, fontsize=self.font_size)
+            text_bg_rect = fitz.Rect(
+                text_insertion_point.x, 
+                text_insertion_point.y - self.font_size,
+                text_insertion_point.x + text_len + 4,
+                text_insertion_point.y + 3
+            )
+            page.draw_rect(text_bg_rect, color=(1, 1, 1), fill=(1, 1, 1, 0.7))
+
+            page.insert_text(
+                text_insertion_point,
+                label_text,
+                fontsize=self.font_size,
+                color=self.colors['detection_box']
+            )
 
     def _draw_text_regions(self, page: fitz.Page, text_regions: List[Dict]):
-        """Draws text region boxes directly onto the page."""
+        """Draws text region boxes and the extracted text directly onto the page."""
         for region in text_regions:
             bbox = region.get('bbox')
-            if not bbox: continue
+            text_content = region.get('text', '')
 
-            # No scaling or rotation needed. Coordinates are used directly.
+            if not bbox or not text_content:
+                continue
+
             rect = fitz.Rect(bbox)
-            page.draw_rect(rect, color=self.colors['text_region_box'], width=self.line_width)
+            # Draw the bounding box for the text region with a dashed line
+            page.draw_rect(rect, color=self.colors['text_region_box'], width=self.line_width, dashes="[2 2] 0")
+
+            # Insert the extracted text inside the box.
+            # insert_textbox handles word wrapping and clipping automatically.
+            page.insert_textbox(
+                rect,
+                text_content,
+                fontname="helv",
+                fontsize=self.font_size,
+                color=(0, 0.4, 0)  # Darker green for readability
+            )
