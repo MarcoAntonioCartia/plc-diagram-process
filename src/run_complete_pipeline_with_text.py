@@ -207,7 +207,7 @@ else:
 
 # ------------------------------------------------------------------
 # Stub out optional heavy dependencies that PaddleOCR -> PaddleX may try
-# to import (e.g., pycocotools) when those packages are not installed.
+# to import (pycocotools) when those packages are not installed.
 # ------------------------------------------------------------------
 
 import types as _types, sys as _sys

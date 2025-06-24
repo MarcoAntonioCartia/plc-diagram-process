@@ -59,7 +59,7 @@ class UnifiedPLCSetup:
     def __init__(self, data_root: Optional[str] = None, dry_run: bool = False, parallel_jobs: int = 4):
         self.project_root = project_root
         self.data_root = Path(data_root).absolute() if data_root else self.project_root.parent / 'plc-data'
-        self.venv_name = 'yolovenv'
+        self.venv_name = 'plcdp'
         self.venv_path = self.project_root / self.venv_name
         self.dry_run = dry_run
         self.system = platform.system().lower()
@@ -1640,6 +1640,42 @@ echo "Python: {self.venv_python}"
         print("✓ Specialized packages installed successfully")
         return True
 
+    def run_gpu_sanity_check(self) -> bool:
+        """Run a lightweight Torch&nbsp;+ Paddle GPU self-test inside the venv.
+
+        This step NEVER aborts the setup – it is purely diagnostic.  A failure is
+        logged and the setup continues so that CPU-only users are not blocked.
+        """
+        print("\n=== GPU Sanity Check (Torch & Paddle) ===")
+
+        checker_module = "src.utils.gpu_sanity_checker"
+
+        try:
+            # Run the checker with a 2-minute timeout to avoid hanging installs
+            import subprocess, textwrap
+
+            result = subprocess.run(
+                [str(self.venv_python), "-m", checker_module, "--device", "auto"],
+                capture_output=True, text=True, timeout=120
+            )
+
+            print(textwrap.dedent(result.stdout))
+            if result.returncode == 0:
+                print("✓ GPU sanity check passed (or CPU fallback acceptable)")
+            else:
+                print("⚠ GPU sanity check reported issues – continuing anyway")
+            return True  # never fail the whole setup
+
+        except FileNotFoundError:
+            print("⚠ gpu_sanity_checker script not found – skipping")
+            return True
+        except subprocess.TimeoutExpired:
+            print("⚠ GPU sanity check timed out – skipping")
+            return True
+        except Exception as exc:
+            print(f"⚠ GPU sanity check error: {exc}")
+            return True
+
     def run_complete_setup(self) -> bool:
         """Run the complete unified setup process"""
         print("Unified PLC Diagram Processor Setup")
@@ -1656,6 +1692,7 @@ echo "Python: {self.venv_python}"
             ("Upgrading pip tools", self.upgrade_pip_tools),
             ("Installing PyTorch (Direct CUDA)", lambda: self.install_pytorch(self.capabilities)),
             ("Installing other packages", self.install_other_packages),
+            ("GPU sanity check", self.run_gpu_sanity_check),
             ("Setting up data directories", self.setup_data_directories),
             ("Creating activation scripts", self.create_activation_scripts),
             ("Verifying installation", self.verify_installation),

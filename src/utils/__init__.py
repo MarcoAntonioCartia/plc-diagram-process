@@ -6,5 +6,6 @@ Contains managers for datasets, models, and OneDrive integration
 from .dataset_manager import DatasetManager
 from .model_manager import ModelManager
 from .onedrive_manager import OneDriveManager
+from .gpu_manager import GPUManager
 
-__all__ = ['DatasetManager', 'ModelManager', 'OneDriveManager']
+__all__ = ['DatasetManager', 'ModelManager', 'OneDriveManager', 'GPUManager']

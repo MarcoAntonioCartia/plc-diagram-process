@@ -40,6 +40,12 @@ from src.detection.yolo11_train import train_yolo11, validate_dataset, get_best_
 from src.detection.detect_pipeline import PLCDetectionPipeline
 from src.config import get_config
 
+# Manage GPU framework selection early to avoid DLL conflicts
+from src.utils.gpu_manager import GPUManager
+
+# Ensure Torch gets priority before any Paddle usage in the same process
+GPUManager.global_instance().use_torch()
+
 class CompletePipelineRunner:
     def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), overlap=500, model_name=None, device=None):
         """

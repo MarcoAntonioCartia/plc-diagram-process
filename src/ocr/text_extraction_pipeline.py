@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from paddleocr import PaddleOCR
+# Ensure correct CUDA DLL order when Paddle is about to be used
+from src.utils.gpu_manager import GPUManager
 
 # Import our new modules
 from .detection_deduplication import deduplicate_detections, analyze_detection_overlaps
@@ -102,6 +104,16 @@ class TextExtractionPipeline:
         # Decide compute device (GPU preferred if available)
         self.device = self._get_device(device)
         print(f"Using '{self.device}' device for PaddleOCR (fallback handled automatically).")
+        
+        # ------------------------------------------------------------------
+        # Prepare the process for Paddle usage (set env vars, clear Torch caches
+        # if it was imported earlier, etc.).  This mitigates cuDNN / cuBLAS DLL
+        # conflicts when Torch and Paddle live in the same interpreter.
+        # ------------------------------------------------------------------
+        try:
+            GPUManager.global_instance().use_paddle()
+        except Exception as _gpu_exc:  # pragma: no cover – never fatal
+            print(f"[GPUManager] Warning: could not switch to paddle mode: {_gpu_exc}")
         
         # Initialize ROI preprocessor
         if self.enable_roi_preprocessing:
