@@ -187,6 +187,23 @@ python src/detection/run_complete_pipeline.py --epochs 20 --conf 0.3 --snippet-s
 python tests/validate_setup.py
 ```
 
+### 7. (Optional) GPU sanity check & framework switching
+
+The setup script automatically runs a lightweight diagnostic that verifies both
+PyTorch **and** Paddle can access your GPU without conflicting CUDA DLLs.  You
+can re-run it manually at any time:
+
+```bash
+python -m src.utils.gpu_sanity_checker --device auto  # options: auto|gpu|cpu
+```
+
+If the checker reports that CUDA is unavailable, the pipeline will still work
+in CPU mode, but performance will be lower.
+
+The runtime now uses a unified `GPUManager` utility to prevent Torch ⇄ Paddle
+conflicts.  You do **not** have to call it yourself; the detection and OCR
+stages invoke it automatically.
+
 ## Individual Component Usage
 
 ### Train YOLO11 Model
