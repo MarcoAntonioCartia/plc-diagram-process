@@ -463,32 +463,64 @@ class UnifiedPLCSetup:
     def _install_with_password_prompt(self) -> bool:
         """Install poppler with interactive password prompt"""
         try:
-            install_script = '''#!/bin/bash
-echo "Updating package lists..."
-sudo apt-get update
-if [ $? -eq 0 ]; then
-    echo "Installing poppler-utils..."
-    sudo apt-get install -y poppler-utils
-    if [ $? -eq 0 ]; then
-        echo "SUCCESS"
+            install_script = r'''#!/usr/bin/env bash
+
+# Detect available package manager inside WSL and install poppler-utils.
+
+set -e
+
+detect_pkg_mgr() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "apt-get"
+    elif command -v apt >/dev/null 2>&1; then
+        echo "apt"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+    elif command -v yum >/dev/null 2>&1; then
+        echo "yum"
+    elif command -v apk >/dev/null 2>&1; then
+        echo "apk"
     else
-        echo "FAILED_INSTALL"
+        echo "unsupported"
     fi
-else
-    echo "FAILED_UPDATE"
+}
+
+PKG_MGR=$(detect_pkg_mgr)
+if [ "$PKG_MGR" = "unsupported" ]; then
+    echo "FAILED_UNSUPPORTED_PM"
+    exit 1
 fi
+
+echo "Package manager detected: $PKG_MGR"
+
+case "$PKG_MGR" in
+    apt-get|apt)
+        sudo $PKG_MGR update && sudo $PKG_MGR install -y poppler-utils ;;
+    dnf|yum)
+        sudo $PKG_MGR install -y poppler-utils ;;
+    apk)
+        sudo $PKG_MGR add --update poppler-utils ;;
+esac
+
+echo "SUCCESS"
 '''
             
             # Write script to temporary file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
-                f.write(install_script)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False, newline='\n') as f:
+                # Force LF line endings regardless of host OS to satisfy bash
+                f.write(install_script.replace('\r', ''))
                 script_path = f.name
             
-            # Convert Windows path to WSL path
-            wsl_script_path = subprocess.run(
-                ['wsl', '-e', 'wslpath', '-u', script_path],
-                capture_output=True, text=True
-            ).stdout.strip()
+            # Obtain WSL-compatible path to the script
+            wsl_script_path = subprocess.check_output([
+                'wsl', '-e', 'wslpath', '-u', script_path
+            ], text=True).strip()
+
+            # Ensure LF endings inside WSL (dos2unix optional)
+            try:
+                subprocess.run(['wsl', '-e', 'bash', '-c', f'dos2unix {wsl_script_path} >/dev/null 2>&1 || true'])
+            except Exception:
+                pass
             
             # Make script executable and run it
             print("\nPlease enter your WSL password when prompted:")
@@ -521,32 +553,66 @@ fi
 
     def _run_wsl_poppler_install(self) -> bool:
         """Run the actual WSL poppler installation (for passwordless sudo)"""
-        # Update package list
-        print("Updating WSL package list...")
-        update_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apt-get update']
+        print("Detecting package manager inside WSL …")
+        detect_cmd = [
+            'wsl', '-e', 'bash', '-c',
+            'if command -v apt-get >/dev/null 2>&1; then echo apt-get; '
+            'elif command -v apt >/dev/null 2>&1; then echo apt; '
+            'elif command -v dnf >/dev/null 2>&1; then echo dnf; '
+            'elif command -v yum >/dev/null 2>&1; then echo yum; '
+            'elif command -v apk >/dev/null 2>&1; then echo apk; '
+            'else echo unsupported; fi'
+        ]
         try:
-            subprocess.run(update_cmd, check=True, timeout=60)
-            print("✓ Package list updated successfully")
+            pm = subprocess.check_output(detect_cmd, text=True, timeout=10).strip()
+        except Exception:
+            pm = 'unsupported'
+
+        if pm == 'unsupported':
+            print('✗ Could not detect a supported package manager inside WSL')
+            return False
+
+        print(f"✓ Package manager detected inside WSL: {pm}")
+
+        # Build update / install commands for the detected manager
+        if pm in {'apt', 'apt-get'}:
+            update_cmd = ['wsl', '-e', 'bash', '-c', f'sudo {pm} update']
+            install_cmd = ['wsl', '-e', 'bash', '-c', f'sudo {pm} install -y poppler-utils']
+        elif pm in {'dnf', 'yum'}:
+            update_cmd = ['wsl', '-e', 'bash', '-c', f'sudo {pm} makecache']
+            install_cmd = ['wsl', '-e', 'bash', '-c', f'sudo {pm} install -y poppler-utils']
+        elif pm == 'apk':
+            update_cmd = None  # apk update runs implicitly when adding packages
+            install_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apk add --update poppler-utils']
+        else:
+            print('✗ Unsupported package manager')
+            return False
+
+        # Run update if defined
+        if update_cmd:
+            print('Updating WSL package list …')
+            try:
+                subprocess.run(update_cmd, check=True, timeout=60)
+                print('✓ Package list updated successfully')
+            except subprocess.CalledProcessError:
+                print('✗ Failed to update package list')
+                return False
+            except subprocess.TimeoutExpired:
+                print('⚠ Package update timed out')
+                return False
+
+        # Install package
+        print('Installing poppler-utils in WSL …')
+        try:
+            subprocess.run(install_cmd, check=True, timeout=180)
+            print('✓ poppler-utils installed successfully')
         except subprocess.CalledProcessError:
-            print("✗ Failed to update package list")
+            print('✗ Failed to install poppler-utils')
             return False
         except subprocess.TimeoutExpired:
-            print("⚠ Package update timed out")
+            print('⚠ Poppler installation timed out')
             return False
-        
-        # Install poppler-utils
-        print("Installing poppler-utils in WSL...")
-        install_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apt-get install -y poppler-utils']
-        try:
-            subprocess.run(install_cmd, check=True, timeout=120)
-            print("✓ Poppler-utils installed successfully")
-        except subprocess.CalledProcessError:
-            print("✗ Failed to install poppler-utils")
-            return False
-        except subprocess.TimeoutExpired:
-            print("⚠ Poppler installation timed out")
-            return False
-        
+         
         return self._create_wsl_wrappers()
 
     def _guide_manual_wsl_installation(self) -> bool:
