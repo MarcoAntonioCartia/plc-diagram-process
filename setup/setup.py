@@ -1788,6 +1788,13 @@ echo "Python: {self.venv_python}"
             print(f"⚠ GPU sanity check error: {exc}")
             return True
 
+    def ensure_latest_numpy(self) -> bool:
+        """Upgrade NumPy to the latest 2.x release to avoid old-wheel DLL issues"""
+        print("\n=== Ensuring latest NumPy (>=2.1,<3) ===")
+        return self.run_command([
+            str(self.venv_pip), 'install', '--upgrade', 'numpy>=2.1,<3'
+        ], "Upgrading NumPy to >=2.1,<3", use_venv=False)
+
     def run_complete_setup(self) -> bool:
         """Run the complete unified setup process"""
         print("Unified PLC Diagram Processor Setup")
@@ -1807,6 +1814,7 @@ echo "Python: {self.venv_python}"
             ("Setting up data directories", self.setup_data_directories),
             ("Creating activation scripts", self.create_activation_scripts),
             ("Installing specialized packages", lambda: self.install_specialized_packages(self.capabilities)),
+            ("Finalize NumPy version", self.ensure_latest_numpy),
             ("GPU sanity check", self.run_gpu_sanity_check),
             ("Verifying installation", self.verify_installation),
         ]

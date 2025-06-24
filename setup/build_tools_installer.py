@@ -780,7 +780,7 @@ call "{vcvars_path}"
         self.logger.info("Phase 2 ➜ dependencies-first fallback …")
 
         dependencies = [
-            "numpy>=1.19.3,<2.0.0",  # keep upper bound for NumPy 2.x
+            "numpy>=2.1",  # Allow modern NumPy compatible with PyTorch/Paddle
             "opencv-python>=4.6.0",
             "pillow>=8.2.0",
             "pyyaml>=6.0",
