@@ -234,12 +234,44 @@ class MultiEnvironmentManager:
             env_vars = os.environ.copy()
             env_vars["PYTHONPATH"] = str(self.project_root)
 
-            subprocess.check_call(
-                [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
-                env=env_vars,
-            )
+            MAX_RETRIES = 2
+            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "1800"))  # 30 min default
 
-            return json.loads(output_file.read_text())
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    completed = subprocess.run(
+                        [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
+                        env=env_vars,
+                        timeout=TIMEOUT_SEC,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    if completed.returncode != 0:
+                        raise subprocess.CalledProcessError(
+                            completed.returncode, completed.args, output=completed.stdout, stderr=completed.stderr,
+                        )
+
+                    # Parse result JSON – may still include error status inside
+                    result = json.loads(output_file.read_text())
+                    return result
+
+                except subprocess.TimeoutExpired:
+                    err = f"Worker {worker_script} timed out after {TIMEOUT_SEC}s (attempt {attempt}/{MAX_RETRIES})"
+                    print(f"[MultiEnv] {err}")
+                    if attempt > MAX_RETRIES:
+                        return {"status": "error", "error": err}
+                    continue  # retry
+                except subprocess.CalledProcessError as exc:
+                    err_msg = (
+                        f"Worker {worker_script} failed with code {exc.returncode}: {exc.stderr.strip()}"
+                    )
+                    print(f"[MultiEnv] {err_msg} (attempt {attempt}/{MAX_RETRIES})")
+                    if attempt > MAX_RETRIES:
+                        return {"status": "error", "error": err_msg}
+                    continue
 
 
 # ---------------------------------------------------------------------------

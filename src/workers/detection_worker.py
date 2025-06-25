@@ -54,9 +54,14 @@ def main() -> None:
 
     except Exception as exc:
         out = {"status": "error", "error": str(exc)}
+        exit_code = 1
+    else:
+        exit_code = 0
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

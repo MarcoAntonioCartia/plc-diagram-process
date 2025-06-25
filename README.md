@@ -135,7 +135,7 @@ cd plc-diagram-processor
 ### 2. Complete Setup (Recommended)
 ```bash
 # Run the complete setup script
-python setup/setup.py
+python setup/setup.py --multi-env  # add --multi-env to keep PyTorch & Paddle in split venvs
 ```
 
 This will:
@@ -165,7 +165,25 @@ python setup/manage_datasets.py --interactive
 python setup/manage_datasets.py --download-latest
 ```
 
-### 5. Run Complete Detection Pipeline
+### 5. Run Pipeline in Isolated GPU Environments (Windows recommended)
+
+The new **multi-environment** mode eliminates CUDA DLL conflicts by running
+symbol-detection and OCR in **two dedicated virtual environments**:
+
+```bash
+# Make sure the envs are created (only once)
+python setup/setup.py --multi-env
+
+# Run end-to-end processing using the launcher
+python launch.py --mode multi
+```
+
+If you prefer the legacy single-process execution (e.g. on Linux CPU servers):
+```bash
+python launch.py  # defaults to --mode single
+```
+
+### 6. Run Complete Detection Pipeline (Single-env legacy)
 
 **Full pipeline with training:**
 ```bash
@@ -182,12 +200,12 @@ python src/detection/run_complete_pipeline.py --skip-training
 python src/detection/run_complete_pipeline.py --epochs 20 --conf 0.3 --snippet-size 1200 1000
 ```
 
-### 6. Validate Setup
+### 7. Validate Setup
 ```bash
 python tests/validate_setup.py
 ```
 
-### 7. (Optional) GPU sanity check & framework switching
+### 8. (Optional) GPU sanity check & framework switching
 
 The setup script automatically runs a lightweight diagnostic that verifies both
 PyTorch **and** Paddle can access your GPU without conflicting CUDA DLLs.  You

@@ -1767,6 +1767,13 @@ echo "Python: {self.venv_python}"
             ("Verifying installation", self.verify_installation),
         ]
         
+        if getattr(self, "skip_gpu_packages", False):
+            # Remove steps that install heavy GPU frameworks – they will live in split envs instead.
+            steps = [
+                (name, func) for name, func in steps
+                if not name.startswith("Installing PyTorch") and not name.startswith("Installing specialized packages")
+            ]
+        
         # Store capabilities for later steps
         self.capabilities = None
         
@@ -1852,6 +1859,7 @@ def main():
     
     # Otherwise proceed with the full setup workflow
     setup = UnifiedPLCSetup(data_root=args.data_root, dry_run=args.dry_run, parallel_jobs=args.parallel_jobs)
+    setup.skip_gpu_packages = args.multi_env
     
     try:
         success = setup.run_complete_setup()

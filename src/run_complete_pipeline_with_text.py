@@ -801,23 +801,41 @@ def main():
 
             print(f"[Multi-Env] Processing {len(pdf_files)} PDFs …")
 
+            try:
+                from tqdm import tqdm  # type: ignore
+                iterator = tqdm(pdf_files, unit="pdf")
+            except ImportError:
+                iterator = pdf_files  # fallback
+
             combined_stats = {"processed": 0, "errors": 0}
-            for pdf_path in pdf_files:
-                print(f"→ {pdf_path.name}")
+
+            for pdf_path in iterator:
+                if isinstance(iterator, list):
+                    print(f"→ {pdf_path.name}")
+
+                per_pdf_out = out_root / pdf_path.stem
+                per_pdf_out.mkdir(parents=True, exist_ok=True)
+
                 result = mgr.run_complete_pipeline(
                     pdf_path=pdf_path,
-                    output_dir=out_root / pdf_path.stem,
+                    output_dir=per_pdf_out,
                     detection_conf=args.conf,
                     ocr_conf=args.ocr_confidence,
                     lang=args.ocr_lang,
                 )
 
+                log_path = per_pdf_out / "run.log"
+                with open(log_path, "w", encoding="utf-8") as log_f:
+                    json.dump(result, log_f, indent=2)
+
                 combined_stats["processed"] += 1
                 if result.get("status") != "success":
                     combined_stats["errors"] += 1
-                    print(f"   ❌ Failed at {result.get('stage')} stage → see logs.")
+                    if isinstance(iterator, list):
+                        print(f"   ❌ Failed at {result.get('stage')} stage → see {log_path}")
                 else:
-                    print("   ✅ Success")
+                    if isinstance(iterator, list):
+                        print("   ✅ Success")
 
             print("\n[Multi-Env] Summary")
             print("------------------")
