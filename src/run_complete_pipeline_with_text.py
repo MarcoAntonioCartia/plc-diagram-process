@@ -119,6 +119,11 @@ def _apply_gpu_path_fix():
             site_packages / "nvidia" / "cuda_runtime" / "bin",
             site_packages / "nvidia" / "cudnn" / "bin",
             site_packages / "nvidia" / "cublas" / "bin",
+            site_packages / "nvidia" / "cuda_nvrtc" / "bin",
+            site_packages / "nvidia" / "cusparse" / "bin",
+            site_packages / "nvidia" / "cusparse" / "lib",
+            site_packages / "nvidia" / "cusolver" / "bin",
+            site_packages / "nvidia" / "cusolver" / "lib",
             site_packages / "paddle" / "libs",
         ]
         

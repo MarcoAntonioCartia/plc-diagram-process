@@ -51,7 +51,13 @@ def _test_paddle(device_preference: str) -> bool:
 
         available = paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
         if available:
-            dev_id = paddle.device.cuda.current_device()
+            # `paddle.device.cuda.current_device()` was removed in Paddle>=2.6, so we
+            # fall back gracefully when it's not present.
+            if hasattr(paddle.device.cuda, "current_device"):
+                dev_id = paddle.device.cuda.current_device()
+            else:
+                dev_str = getattr(paddle, "get_device", lambda: "gpu:0")()
+                dev_id = dev_str.split(":")[-1] if dev_str.startswith("gpu") else "0"
             print(f"[paddle]  CUDA available – gpu:{dev_id}")
         else:
             print("[paddle]   CUDA NOT available – using CPU")

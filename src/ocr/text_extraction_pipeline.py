@@ -62,8 +62,18 @@ class TextExtractionPipeline:
             if paddle.device.is_compiled_with_cuda():
                 gpu_count = paddle.device.cuda.device_count()
                 if gpu_count > 0:
-                    first_gpu = paddle.device.cuda.current_device()
-                    dev_str = f"gpu:{first_gpu}"
+                    # Paddle 2.6 removed `paddle.device.cuda.current_device()`; use a
+                    # robust fallback that works on both old *and* new versions.
+                    if hasattr(paddle.device.cuda, "current_device"):
+                        idx = paddle.device.cuda.current_device()
+                    else:
+                        # `paddle.get_device()` returns strings like 'gpu:0'. We only
+                        # need the numeric index here.  If the string doesn't start
+                        # with the expected prefix we just default to 0.
+                        _dev_str = getattr(paddle, "get_device", lambda: "gpu:0")()
+                        idx = int(_dev_str.split(":")[-1]) if _dev_str.startswith("gpu") else 0
+
+                    dev_str = f"gpu:{idx}"
                     print(f"CUDA detected with {gpu_count} device(s). Selecting '{dev_str}'.")
                     return dev_str
                 else:

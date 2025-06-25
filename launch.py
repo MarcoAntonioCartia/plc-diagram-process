@@ -28,27 +28,36 @@ def configure_gpu_environment():
     print("--- Launcher: Configuring GPU environment for Windows...")
     
     venv_path = Path(sys.executable).parent.parent
-    dll_paths = [
+    # Known optional sub-folders vary between wheel versions (some ship only /bin)
+    required_dll_paths = [
         venv_path / "Lib" / "site-packages" / "nvidia" / "cublas" / "bin",
         venv_path / "Lib" / "site-packages" / "nvidia" / "cuda_nvrtc" / "bin",
+        # At least **one** of the runtime locations must exist (lib is optional on Windows wheels)
         venv_path / "Lib" / "site-packages" / "nvidia" / "cuda_runtime" / "bin",
         venv_path / "Lib" / "site-packages" / "nvidia" / "cudnn" / "bin",
+        venv_path / "Lib" / "site-packages" / "nvidia" / "cusparse" / "bin",
+        venv_path / "Lib" / "site-packages" / "nvidia" / "cusolver" / "bin",
     ]
-    
-    all_paths_exist = True
-    for path in dll_paths:
-        if not path.exists():
-            print(f"--- Launcher: WARNING - Required DLL path does not exist: {path}")
-            all_paths_exist = False
 
-    if not all_paths_exist:
-        print("--- Launcher: CRITICAL - Cannot configure GPU environment due to missing directories.")
-        # Fallback to simple PATH manipulation, but expect errors.
+    optional_dll_paths = [
+        venv_path / "Lib" / "site-packages" / "nvidia" / "cuda_runtime" / "lib",  # present on some wheels, absent on others
+    ]
+
+    # Validate the required paths
+    missing_required = False
+    for path in required_dll_paths:
+        if not path.exists():
+            print(f"--- Launcher: WARNING - Expected DLL path does not exist: {path}")
+            missing_required = True
+
+    if missing_required:
+        print("--- Launcher: CRITICAL - Essential GPU library folders missing – falling back to PATH manipulation.")
         original_path = os.environ.get("PATH", "")
-        path_str = ";".join(str(p) for p in dll_paths if p.exists())
-        os.environ["PATH"] = path_str + ";" + original_path
-        print("--- Launcher: Fell back to basic PATH manipulation. This may not be reliable.")
+        search_paths = [str(p) for p in required_dll_paths + optional_dll_paths if p.exists()]
+        os.environ["PATH"] = ";".join(search_paths) + ";" + original_path
         return
+
+    dll_paths = required_dll_paths + [p for p in optional_dll_paths if p.exists()]
 
     print("--- Launcher: All required GPU library paths found.")
     try:
