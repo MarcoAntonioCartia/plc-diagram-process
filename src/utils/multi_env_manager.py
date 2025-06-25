@@ -141,6 +141,50 @@ class MultiEnvironmentManager:
     def run_ocr_pipeline(self, input_dict: Dict[str, Any]) -> Dict[str, Any]:
         return self._run_worker("ocr_worker.py", input_dict, self.ocr)
 
+    # Convenience wrapper --------------------------------------------------
+    def run_complete_pipeline(
+        self,
+        pdf_path: Path,
+        output_dir: Path,
+        *,
+        detection_conf: float = 0.25,
+        ocr_conf: float = 0.7,
+        lang: str = "en",
+    ) -> Dict[str, Any]:
+        """Run detection → OCR for a single PDF and return combined result."""
+
+        # Ensure output directories exist
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        det_payload = {
+            "pdf_path": str(pdf_path),
+            "output_dir": str(output_dir / "detection"),
+            "confidence_threshold": detection_conf,
+        }
+        det_out = self.run_detection_pipeline(det_payload)
+
+        if det_out.get("status") != "success":
+            return {"status": "error", "stage": "detection", **det_out}
+
+        ocr_payload = {
+            "pdf_path": str(pdf_path),
+            "output_dir": str(output_dir / "ocr"),
+            "detection_results": det_out["results"],
+            "confidence_threshold": ocr_conf,
+            "language": lang,
+        }
+
+        ocr_out = self.run_ocr_pipeline(ocr_payload)
+
+        if ocr_out.get("status") != "success":
+            return {"status": "error", "stage": "ocr", **ocr_out}
+
+        return {
+            "status": "success",
+            "detection": det_out["results"],
+            "ocr": ocr_out["results"],
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

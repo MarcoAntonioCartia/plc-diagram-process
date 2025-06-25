@@ -753,6 +753,10 @@ def main():
     parser.add_argument('--detection-folder', type=str, default=None,
                        help='Custom detection folder path (default: auto-detected based on pipeline)')
     
+    # Multi-environment switch
+    parser.add_argument('--mode', choices=['single', 'multi'], default='single',
+                       help='Execution mode: single (default) = legacy in-process, multi = use isolated detection/ocr environments.')
+    
     args = parser.parse_args()
     
     # Handle list-models command (delegate to parent)
@@ -761,6 +765,68 @@ def main():
         return parent_main()
     
     try:
+        # ------------------------------------------------------------------
+        # Multi-environment short-circuit (first draft)
+        # ------------------------------------------------------------------
+        if args.mode == 'multi':
+            from pathlib import Path as _P
+            from src.utils.multi_env_manager import MultiEnvironmentManager  # noqa: WPS433 – runtime import by design
+
+            mgr = MultiEnvironmentManager(_P(__file__).resolve().parent.parent)
+            print("[Multi-Env] Ensuring detection / OCR environments …")
+            if not (mgr.setup() and mgr.health_check()):
+                print("❌ Multi-environment setup failed – aborting.")
+                return 1
+
+            # ------------------------------------------------------------------
+            # Discover input PDFs using the same config conventions as the legacy
+            # single-process runner: ${data_root}/raw/pdfs/*.pdf
+            # ------------------------------------------------------------------
+            from src.config import Config  # noqa: WPS433 – runtime import
+
+            cfg = Config()
+            data_root = _P(cfg.config["data_root"])
+            pdf_folder = data_root / "raw" / "pdfs"
+            if not pdf_folder.exists():
+                print(f"❌ PDF input folder not found: {pdf_folder}")
+                return 1
+
+            out_root = data_root / "processed" / "detdiagrams"
+            out_root.mkdir(parents=True, exist_ok=True)
+
+            pdf_files = sorted(pdf_folder.glob("*.pdf"))
+            if not pdf_files:
+                print(f"⚠️  No PDFs found in {pdf_folder}")
+                return 0  # Nothing to do, but not an error
+
+            print(f"[Multi-Env] Processing {len(pdf_files)} PDFs …")
+
+            combined_stats = {"processed": 0, "errors": 0}
+            for pdf_path in pdf_files:
+                print(f"→ {pdf_path.name}")
+                result = mgr.run_complete_pipeline(
+                    pdf_path=pdf_path,
+                    output_dir=out_root / pdf_path.stem,
+                    detection_conf=args.conf,
+                    ocr_conf=args.ocr_confidence,
+                    lang=args.ocr_lang,
+                )
+
+                combined_stats["processed"] += 1
+                if result.get("status") != "success":
+                    combined_stats["errors"] += 1
+                    print(f"   ❌ Failed at {result.get('stage')} stage → see logs.")
+                else:
+                    print("   ✅ Success")
+
+            print("\n[Multi-Env] Summary")
+            print("------------------")
+            print(f"Total PDFs: {combined_stats['processed']}")
+            print(f"Successes : {combined_stats['processed'] - combined_stats['errors']}")
+            print(f"Errors    : {combined_stats['errors']}")
+
+            return 0 if combined_stats["errors"] == 0 else 1
+        
         # Initialize pipeline runner
         runner = CompleteTextPipelineRunner(
             epochs=args.epochs,

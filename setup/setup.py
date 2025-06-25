@@ -1833,6 +1833,9 @@ def main():
     # Quick check flag: skip the whole setup and only validate imports
     parser.add_argument('--validate-imports', action='store_true',
                        help='Skip all setup steps and only run the final import verification inside the existing virtual environment')
+    # split envs
+    parser.add_argument('--multi-env', action='store_true',
+                       help='After main venv is ready create detection_env (torch) and ocr_env (paddle) via MultiEnvironmentManager')
     
     args = parser.parse_args()
     
@@ -1853,6 +1856,19 @@ def main():
     try:
         success = setup.run_complete_setup()
         
+        if success and args.multi_env:
+            try:
+                from pathlib import Path
+                from src.utils.multi_env_manager import MultiEnvironmentManager
+
+                mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent)
+                if mgr.setup() and mgr.health_check():
+                    print("\n✓ Multi-environment setup completed successfully!")
+                else:
+                    print("\n⚠ Multi-environment setup reported issues. See log above.")
+            except Exception as exc:
+                print(f"\n⚠ Failed to create multi-environment: {exc}")
+
         if success:
             print("\n✓ Setup completed successfully!")
             return 0
