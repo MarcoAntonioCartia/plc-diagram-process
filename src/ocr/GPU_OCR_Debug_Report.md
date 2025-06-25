@@ -13,7 +13,7 @@
 | Driver | 537.24 (R535 family – CUDA 12.x capable) |
 | Python | 3.11 (venv: `plcdp`) |
 | CUDA toolchains present | **None** (we rely on wheels only) |
-| Key Python wheels | `paddlepaddle-gpu==3.0.0` **cu126 build**<br>`torch==2.3.0+cu121` / `torchvision==0.18.0+cu121`<br>*No* stand-alone `nvidia-*-cuXX` wheels after cleanup |
+| Key Python wheels | `paddlepaddle-gpu==3.0.0` **cu121 build**<br>`torch==2.3.0+cu121` / `torchvision==0.18.0+cu121`<br>*No* stand-alone `nvidia-*-cuXX` wheels after cleanup |
 
 ---
 

@@ -38,7 +38,7 @@ paddlepaddle-gpu==3.0.0
 # --- Main Application Dependencies ---
 ultralytics==8.2.13
 numpy==1.26.4
-pandas==1.5.3
+pandas>=2.2.2
 Pillow<11.0
 PyMuPDF<1.25
 PyYAML==6.0.1
@@ -77,7 +77,6 @@ PyMuPDF>=1.23.0             # PDF text extraction and manipulation (fitz)
 
 # Data Processing and Utilities
 # Pinned to avoid NumPy 2.x ABI issues with compiled extensions
-pandas==1.5.3               # Data manipulation and analysis
 matplotlib>=3.5.0           # Plotting and visualization
 tqdm>=4.64.0                # Progress bars
 

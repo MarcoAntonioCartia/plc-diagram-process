@@ -2,7 +2,7 @@
 
 ## Problem Description
 
-When both PyTorch and PaddlePaddle are installed in the same environment with CUDA 12.6, they compete for GPU control through different CUDA libraries and DLLs. Common issues:
+When both PyTorch and PaddlePaddle are installed in the same environment with CUDA **12.1**, they compete for GPU control through different CUDA libraries and DLLs. Common issues:
 
 - **DLL conflicts**: Both frameworks load their own CUDA libraries
 - **Memory conflicts**: GPU memory allocation disputes  
@@ -50,7 +50,7 @@ pip install paddleocr
 # PyTorch environment
 conda create -n torch_env python=3.9  
 conda activate torch_env
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
 **Pros**: ✅ No conflicts, ✅ Clean separation, ✅ Production ready  
@@ -75,16 +75,16 @@ import paddle
 **Pros**: ✅ Simple, ✅ No code changes  
 **Cons**: ⚠️ Still potential conflicts, ⚠️ Less reliable
 
-## CUDA 12.6 Specific Configuration
+## CUDA 12.1 Specific Configuration
 
 ### PyTorch Installation (Your Command)
 ```bash
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ### PaddlePaddle Compatible Version
 ```bash
-# Use development version for CUDA 12.6
+# Use development version for CUDA 12.1
 pip install paddlepaddle-gpu==3.0.0b2
 
 # Or nightly build if issues persist
@@ -183,4 +183,4 @@ manager.switch_to_torch()
 # ... PyTorch code here ...
 ```
 
-This approach will handle the DLL conflicts automatically and provide clean switching between frameworks in your CUDA 12.6 environment.
+This approach will handle the DLL conflicts automatically and provide clean switching between frameworks in your CUDA 12.1 environment.

@@ -1011,57 +1011,24 @@ wsl -e {tool} %*
             return False
 
     def _get_best_pytorch_index(self, cuda_version: str) -> Tuple[str, str]:
-        """Get the best available PyTorch index URL with fallback validation"""
-        print(f"  Finding best PyTorch index for CUDA {cuda_version}...")
-        
-        # Define index options in priority order
-        index_options = []
-        
-        if cuda_version.startswith("12.8") or cuda_version.startswith("12.9"):
-            index_options = [
-                ("cu128", "https://download.pytorch.org/whl/cu128"),
-                ("cu121", "https://download.pytorch.org/whl/cu121"),
-                ("cu118", "https://download.pytorch.org/whl/cu118"),
-                ("cpu", "https://download.pytorch.org/whl/cpu")
-            ]
-        elif cuda_version.startswith("12.1") or cuda_version.startswith("12.2") or cuda_version.startswith("12.3") or cuda_version.startswith("12.4"):
-            index_options = [
-                ("cu121", "https://download.pytorch.org/whl/cu121"),
-                ("cu128", "https://download.pytorch.org/whl/cu128"),
-                ("cu118", "https://download.pytorch.org/whl/cu118"),
-                ("cpu", "https://download.pytorch.org/whl/cpu")
-            ]
-        elif cuda_version.startswith("12"):
-            index_options = [
-                ("cu121", "https://download.pytorch.org/whl/cu121"),
-                ("cu128", "https://download.pytorch.org/whl/cu128"),
-                ("cu118", "https://download.pytorch.org/whl/cu118"),
-                ("cpu", "https://download.pytorch.org/whl/cpu")
-            ]
-        elif cuda_version.startswith("11.8") or cuda_version.startswith("11.9"):
-            index_options = [
-                ("cu118", "https://download.pytorch.org/whl/cu118"),
-                ("cu121", "https://download.pytorch.org/whl/cu121"),
-                ("cpu", "https://download.pytorch.org/whl/cpu")
-            ]
-        else:
-            index_options = [
-                ("cu118", "https://download.pytorch.org/whl/cu118"),
-                ("cu121", "https://download.pytorch.org/whl/cu121"),
-                ("cpu", "https://download.pytorch.org/whl/cpu")
-            ]
-        
-        # Test each index URL until we find one that works
-        for cuda_suffix, index_url in index_options:
-            print(f"    Testing {cuda_suffix} index: {index_url}")
-            if self._validate_pytorch_index(index_url):
-                print(f"    ✓ {cuda_suffix} index is accessible")
-                return cuda_suffix, index_url
-            else:
-                print(f"    ✗ {cuda_suffix} index not accessible")
-        
-        # If all fail, return CPU as final fallback
-        print("    ⚠ All CUDA indexes failed, falling back to CPU")
+        """Return the fixed PyTorch CUDA-12.1 wheel index.
+
+        We standardise the whole project on *cu121* wheels because they are the
+        most widely tested combo with Paddle 3.0.0.  This simplifies the
+        dependency matrix and avoids future surprises when NVIDIA publishes
+        newer minor releases (cu128, cu129, …).
+        """
+
+        fixed_url = "https://download.pytorch.org/whl/cu121"
+        print(f"  Using fixed PyTorch index for CU121 wheels: {fixed_url}")
+
+        # Still validate connectivity so we can fall back to CPU wheels if the
+        # URL is blocked (rare corporate proxy cases).
+        if self._validate_pytorch_index(fixed_url):
+            print("    ✓ cu121 index is accessible")
+            return "cu121", fixed_url
+
+        print("    ✗ cu121 index not accessible – falling back to CPU wheels")
         return "cpu", "https://download.pytorch.org/whl/cpu"
 
     # === PYTORCH INSTALLATION (DIRECT CUDA APPROACH) ===
@@ -1198,29 +1165,10 @@ else:
         # Enhanced CUDA version detection
         cuda_version = gpu_info.get("cuda_version", "11.8")
         
-        # Determine the correct PyTorch CUDA index
-        if cuda_version.startswith("12.8") or cuda_version.startswith("12.9"):
-            index_url = "https://download.pytorch.org/whl/cu128"
-            cuda_suffix = "cu128"
-            print(f"  Using CUDA 12.8+ PyTorch (cu128) for CUDA {cuda_version}")
-        elif cuda_version.startswith("12.1") or cuda_version.startswith("12.2") or cuda_version.startswith("12.3") or cuda_version.startswith("12.4"):
-            index_url = "https://download.pytorch.org/whl/cu121"
-            cuda_suffix = "cu121"
-            print(f"  Using CUDA 12.1-12.4 PyTorch (cu121) for CUDA {cuda_version}")
-        elif cuda_version.startswith("12"):
-            # Default for other CUDA 12.x versions
-            index_url = "https://download.pytorch.org/whl/cu121"
-            cuda_suffix = "cu121"
-            print(f"  Using CUDA 12.x PyTorch (cu121) for CUDA {cuda_version}")
-        elif cuda_version.startswith("11.8") or cuda_version.startswith("11.9"):
-            index_url = "https://download.pytorch.org/whl/cu118"
-            cuda_suffix = "cu118"
-            print(f"  Using CUDA 11.8+ PyTorch (cu118) for CUDA {cuda_version}")
-        else:
-            # Default fallback
-            index_url = "https://download.pytorch.org/whl/cu118"
-            cuda_suffix = "cu118"
-            print(f"  Using default CUDA 11.8 PyTorch (cu118) for CUDA {cuda_version}")
+        # We standardise on cu121 for all GPUs – simpler matrix & matches Paddle.
+        cuda_suffix = "cu121"
+        index_url = "https://download.pytorch.org/whl/cu121"
+        print(f"  Installing fixed PyTorch build {cuda_suffix} regardless of detected CUDA version")
         
         try:
             # Use wheel-only installation to avoid compilation issues
