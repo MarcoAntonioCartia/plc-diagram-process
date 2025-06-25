@@ -70,6 +70,7 @@ class MultiEnvironmentManager:
 
     _OCR_PKGS = [
         "--upgrade", "pip", "setuptools", "wheel",
+        "requests",  # required by paddleocr at runtime
         "paddleocr",
         # Paddle GPU wheel from paddle.org.cn (cu126 build)
         "paddlepaddle-gpu==3.0.0",

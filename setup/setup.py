@@ -1739,9 +1739,12 @@ echo "Python: {self.venv_python}"
     def ensure_latest_numpy(self) -> bool:
         """Upgrade NumPy to the latest 2.x release to avoid old-wheel DLL issues"""
         print("\n=== Ensuring latest NumPy (>=2.1,<3) ===")
+        # NumPy 2.x wheels are not yet fully supported by OpenCV / pandas on
+        # Windows as of mid-2025 – keep the latest 1.26 LTS line to maintain
+        # binary compatibility while still getting security fixes.
         return self.run_command([
-            str(self.venv_pip), 'install', '--upgrade', 'numpy>=2.1,<3'
-        ], "Upgrading NumPy to >=2.1,<3", use_venv=False)
+            str(self.venv_pip), 'install', '--upgrade', 'numpy>=1.23,<2.0'
+        ], "Upgrading NumPy to <2.0 for wheels compatibility", use_venv=False)
 
     def run_complete_setup(self) -> bool:
         """Run the complete unified setup process"""
