@@ -610,40 +610,64 @@ class TextExtractionPipeline:
                                        current_width: float, current_height: float) -> Tuple[float, float, float, float]:
         """Transform page-level coordinates to global coordinates using snippet position"""
         try:
-            # Get snippet position from associated symbol
-            snippet_pos = detection.get("snippet_position", {})
-            if not snippet_pos:
-                # Fallback: try to get from bbox_snippet vs bbox_global comparison
-                bbox_snippet = detection.get("bbox_snippet", {})
-                bbox_global = detection.get("bbox_global", {})
-                
-                if bbox_snippet and bbox_global:
-                    # Calculate offset from snippet to global coordinates
-                    if isinstance(bbox_snippet, dict) and isinstance(bbox_global, dict):
-                        offset_x = bbox_global.get("x1", 0) - bbox_snippet.get("x1", 0)
-                        offset_y = bbox_global.get("y1", 0) - bbox_snippet.get("y1", 0)
-                    else:
-                        # Handle list format
-                        offset_x = bbox_global[0] - bbox_snippet[0] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
-                        offset_y = bbox_global[1] - bbox_snippet[1] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+            # First try to get offset from bbox comparison (most accurate)
+            bbox_snippet = detection.get("bbox_snippet", {})
+            bbox_global = detection.get("bbox_global", {})
+            
+            if bbox_snippet and bbox_global:
+                # Calculate offset from snippet to global coordinates
+                if isinstance(bbox_snippet, dict) and isinstance(bbox_global, dict):
+                    offset_x = bbox_global.get("x1", 0) - bbox_snippet.get("x1", 0)
+                    offset_y = bbox_global.get("y1", 0) - bbox_snippet.get("y1", 0)
                 else:
-                    # No transformation possible, return original coordinates
+                    # Handle list format
+                    offset_x = bbox_global[0] - bbox_snippet[0] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+                    offset_y = bbox_global[1] - bbox_snippet[1] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+                
+                print(f"Using bbox offset: ({offset_x}, {offset_y})")
+            else:
+                # Fallback: use snippet position
+                snippet_pos = detection.get("snippet_position", {})
+                if not snippet_pos:
                     print(f"Warning: Cannot transform coordinates - no snippet position or bbox info available")
                     return page_bbox
-            else:
-                # Use snippet position to calculate offset
+                
                 row = snippet_pos.get("row", 0)
                 col = snippet_pos.get("col", 0)
                 
-                # Estimate snippet size (this should match the detection pipeline's snippet size)
-                # Default snippet size is typically 1500x1200 with 500 overlap
+                # For edge snippets, we need to look up the actual coordinates
+                # Default calculation for non-edge snippets
                 snippet_width = 1500
                 snippet_height = 1200
                 overlap = 500
+                step_w = snippet_width - overlap  # 1000
+                step_h = snippet_height - overlap  # 700
                 
-                # Calculate offset based on grid position
-                offset_x = col * (snippet_width - overlap)
-                offset_y = row * (snippet_height - overlap)
+                # Calculate default offset
+                offset_x = col * step_w
+                offset_y = row * step_h
+                
+                # Calculate grid dimensions to detect edge snippets
+                cols = max(1, (original_width - overlap) // step_w)
+                rows = max(1, (original_height - overlap) // step_h)
+                
+                if original_width > cols * step_w:
+                    cols += 1
+                if original_height > rows * step_h:
+                    rows += 1
+                
+                # Adjust for edge snippets
+                # Right edge adjustment (last column)
+                if col == cols - 1 and col > 0:  # Last column
+                    # Ensure snippet doesn't exceed image width
+                    offset_x = max(col * step_w, original_width - snippet_width)
+                
+                # Bottom edge adjustment (last row)
+                if row == rows - 1 and row > 0:  # Last row
+                    # Ensure snippet doesn't exceed image height
+                    offset_y = max(row * step_h, original_height - snippet_height)
+                
+                print(f"Snippet position: row={row}, col={col}, adjusted offset=({offset_x}, {offset_y})")
             
             # Apply transformation
             x1, y1, x2, y2 = page_bbox

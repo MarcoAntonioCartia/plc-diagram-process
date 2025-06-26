@@ -230,6 +230,7 @@ if "pycocotools" not in _sys.modules:
     _sys.modules["pycocotools.coco"] = _pc_coco
 
 from src.ocr.text_extraction_pipeline import TextExtractionPipeline
+from src.ocr.coordinate_calibration import CoordinateCalibrator
 from src.utils.detection_text_extraction_pdf_creator import DetectionPDFCreator
 from src.config import get_config
 
@@ -529,6 +530,38 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
             text_summary = text_pipeline.process_detection_folder(
                 filtered_detection_folder, pdf_folder, text_output_folder
             )
+            
+            # Apply coordinate calibration to fix transformation errors
+            print(f"Applying coordinate calibration...")
+            calibrator = CoordinateCalibrator()
+            
+            calibration_results = []
+            text_files = list(text_output_folder.glob("*_text_extraction.json"))
+            
+            for text_file in text_files:
+                try:
+                    corrected_file = text_file.parent / f"{text_file.stem}_corrected.json"
+                    result = calibrator.calibrate_text_extraction_file(text_file, corrected_file)
+                    calibration_results.append({
+                        "file": text_file.name,
+                        "correction_applied": result["correction"]["description"],
+                        "status": "success"
+                    })
+                    
+                    # Replace original with corrected version
+                    import shutil
+                    shutil.move(str(corrected_file), str(text_file))
+                    print(f"  ✓ Calibrated {text_file.name}")
+                    
+                except Exception as e:
+                    print(f"  ✗ Failed to calibrate {text_file.name}: {e}")
+                    calibration_results.append({
+                        "file": text_file.name,
+                        "error": str(e),
+                        "status": "failed"
+                    })
+            
+            print(f"Coordinate calibration completed for {len(text_files)} files")
             
             text_time = time.time() - text_start
             
