@@ -88,8 +88,12 @@ class GPUDetector:
             for i in range(device_count):
                 handle = pynvml.nvmlDeviceGetHandleByIndex(i)
                 
-                # Get GPU name
-                name = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+                # Get GPU name (bytes on old pynvml, str on new)
+                raw_name = pynvml.nvmlDeviceGetName(handle)
+                if isinstance(raw_name, bytes):
+                    name = raw_name.decode('utf-8', errors='ignore')
+                else:
+                    name = str(raw_name)
                 gpu_models.append(name)
                 
                 # Get memory info
@@ -197,30 +201,41 @@ class GPUDetector:
                 if match:
                     cuda_version = match.group(1)
         
-        # Method 3: Check common CUDA installation paths on Windows
-        if not cuda_version and self.system_info["platform"] == "Windows":
-            cuda_base_paths = [
-                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA",
-                "C:\\Program Files (x86)\\NVIDIA GPU Computing Toolkit\\CUDA"
-            ]
-            
-            for base_path in cuda_base_paths:
-                if os.path.exists(base_path):
-                    for item in os.listdir(base_path):
-                        if item.startswith('v') and os.path.isdir(os.path.join(base_path, item)):
-                            version_match = re.search(r'v(\d+\.\d+)', item)
-                            if version_match:
-                                cuda_version = version_match.group(1)
-                                cuda_path = os.path.join(base_path, item)
-                                break
-                    if cuda_version:
-                        break
+        # Method 3: Try to parse CUDA version from nvidia-smi output (works even
+        # when no standalone CUDA toolkit is installed and only the driver is
+        # present – common on clean Windows boxes).
+        if not cuda_version:
+            try:
+                smi_res = subprocess.run(["nvidia-smi"], capture_output=True, text=True, timeout=5)
+                if smi_res.returncode == 0:
+                    import re
+                    match = re.search(r"CUDA Version[: ]+([0-9]+\.[0-9]+)", smi_res.stdout)
+                    if match:
+                        cuda_version = match.group(1)
+            except Exception:
+                pass  # silent – best-effort only
+        
+        # Method 4: Check common CUDA installation paths on Windows
+        # (this is executed *after* nvidia-smi so that the standalone toolkit,
+        # if installed, takes precedence and we can also capture its path).
+        # ------------------------------------------------------------------
         
         if cuda_version:
             return {
                 "has_cuda": True,
                 "cuda_version": cuda_version,
                 "cuda_path": cuda_path
+            }
+        
+        # If CUDA version is still unknown but an NVIDIA GPU exists we return
+        # a sentinel so that higher-level code can still pick a reasonable GPU
+        # wheel (e.g. cu121).  This avoids the misleading "⚠ CUDA not
+        # detected" message that confused users.
+        if getattr(self, "gpu_info", None) and self.gpu_info.get("has_nvidia_gpu"):
+            return {
+                "has_cuda": False,
+                "cuda_version": None,
+                "cuda_path": None,
             }
         
         return None

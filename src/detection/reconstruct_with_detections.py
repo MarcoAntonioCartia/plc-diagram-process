@@ -15,7 +15,7 @@ from io import BytesIO
 from pdf2image import convert_from_path
 import os
 
-from coordinate_transform import save_coordinate_mapping, validate_coordinates, get_detection_statistics
+from .coordinate_transform import save_coordinate_mapping, validate_coordinates, get_detection_statistics
 
 def reconstruct_pdf_with_detections(metadata, global_detections, images_folder, output_folder, original_pdf=None):
     """

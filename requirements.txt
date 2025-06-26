@@ -1,3 +1,60 @@
+# ======================================================================
+#  IMPORTANT GPU ENVIRONMENT NOTES (WINDOWS)
+# ======================================================================
+#
+# Python Version: Python 3.11.x is required for this project.
+#
+# GPU Library Conflict: This project uses both PyTorch (for YOLO) and
+# PaddlePaddle (for OCR). Both libraries bundle their own CUDA runtimes.
+# To prevent "DLL Hell" on Windows, it is CRITICAL that both frameworks
+# are installed using wheels compiled against the same CUDA toolkit version.
+#
+# The recommended stable configuration is to standardize on CUDA 12.1.
+#
+# To build the environment correctly, do NOT just run "pip install -r requirements.txt".
+# Instead, install the GPU frameworks MANUALLY in this specific order:
+#
+# 1. (Optional) Uninstall any conflicting versions first:
+#    pip uninstall torch torchvision torchaudio paddlepaddle-gpu -y
+#
+# 2. Install PyTorch for CUDA 12.1 (This provides the base runtime):
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# 3. Install PaddlePaddle for CUDA 12.x (This will use the runtime installed by PyTorch):
+#    pip install paddlepaddle-gpu==3.0.0
+#
+# 4. Install all remaining requirements from this file:
+#    pip install -r requirements.txt
+#
+# ======================================================================
+
+# --- Core ML/CV Frameworks (Install Manually as per instructions above) ---
+# The versions below are for reference. The manual install commands are the source of truth.
+torch>=2.3.0
+torchvision>=0.18.0
+torchaudio>=2.3.0
+paddlepaddle-gpu==3.0.0
+
+# --- Main Application Dependencies ---
+ultralytics==8.2.13
+numpy==1.26.4
+pandas>=2.2.2
+Pillow<11.0
+PyMuPDF<1.25
+PyYAML==6.0.1
+tqdm==4.66.4
+scikit-learn==1.5.0
+matplotlib==3.8.4
+seaborn==0.13.2
+opencv-python==4.9.0.80
+psutil==5.9.8
+requests==2.32.3
+# Ensure you have poppler installed on your system for pdf2image to work
+# For Windows, you can download it from: https://github.com/oschwartz10612/poppler-windows/releases/
+pdf2image==1.17.0
+pypdf==4.2.0
+openpyxl==3.1.4
+
 # Core ML and Computer Vision
 torch>=2.0.0                # PyTorch deep learning framework
 torchvision>=0.15.0         # Computer vision utilities for PyTorch
@@ -19,7 +76,7 @@ reportlab>=3.6.0            # PDF generation and manipulation
 PyMuPDF>=1.23.0             # PDF text extraction and manipulation (fitz)
 
 # Data Processing and Utilities
-pandas>=1.3.0               # Data manipulation and analysis
+# Pinned to avoid NumPy 2.x ABI issues with compiled extensions
 matplotlib>=3.5.0           # Plotting and visualization
 tqdm>=4.64.0                # Progress bars
 

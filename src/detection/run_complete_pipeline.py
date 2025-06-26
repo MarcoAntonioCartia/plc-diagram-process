@@ -9,7 +9,28 @@ import json
 import argparse
 from pathlib import Path
 import subprocess
-import torch
+
+# Torch is optional for text-only or preprocessing workflows.
+# Import it defensively so the module can still be imported when --skip-detection
+# is used and Torch hasn't been installed yet.
+try:
+    import torch  # type: ignore
+except ModuleNotFoundError:
+    # Create a minimal stub so references like `torch.cuda.is_available()` don't crash.
+    class _CudaStub:
+        @staticmethod
+        def is_available() -> bool:  # noqa: D401,E501
+            return False
+
+    class _TorchStub:
+        cuda = _CudaStub()
+
+        def __getattr__(self, _name):  # noqa: D401,E501
+            raise AttributeError(
+                "Torch is not installed. Install torch to enable detection/training functionality."
+            )
+
+    torch = _TorchStub()  # type: ignore
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -18,6 +39,12 @@ sys.path.append(str(project_root))
 from src.detection.yolo11_train import train_yolo11, validate_dataset, get_best_device
 from src.detection.detect_pipeline import PLCDetectionPipeline
 from src.config import get_config
+
+# Manage GPU framework selection early to avoid DLL conflicts
+from src.utils.gpu_manager import GPUManager
+
+# Ensure Torch gets priority before any Paddle usage in the same process
+GPUManager.global_instance().use_torch()
 
 class CompletePipelineRunner:
     def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), overlap=500, model_name=None, device=None):

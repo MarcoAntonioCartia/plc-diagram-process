@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from paddleocr import PaddleOCR
+# Ensure correct CUDA DLL order when Paddle is about to be used
+from src.utils.gpu_manager import GPUManager
 
 # Import our new modules
 from .detection_deduplication import deduplicate_detections, analyze_detection_overlaps
@@ -43,9 +45,51 @@ class TextExtractionPipeline:
     3. Smart fusion and PLC pattern recognition
     """
     
+    def _get_device(self, device: Optional[str]) -> str:
+        """
+        Determines the appropriate compute device ('gpu' or 'cpu').
+        If a device is specified, it's used. Otherwise, it defaults to 'gpu'.
+        """
+        if device:
+            print(f"Device specified via parameter: {device}")
+            return device
+
+        # Autodetect: prefer first CUDA device when Paddle is compiled with
+        # GPU support; otherwise fall back to CPU.
+        try:
+            import paddle
+
+            if paddle.device.is_compiled_with_cuda():
+                gpu_count = paddle.device.cuda.device_count()
+                if gpu_count > 0:
+                    # Paddle 2.6 removed `paddle.device.cuda.current_device()`; use a
+                    # robust fallback that works on both old *and* new versions.
+                    if hasattr(paddle.device.cuda, "current_device"):
+                        idx = paddle.device.cuda.current_device()
+                    else:
+                        # `paddle.get_device()` returns strings like 'gpu:0'. We only
+                        # need the numeric index here.  If the string doesn't start
+                        # with the expected prefix we just default to 0.
+                        _dev_str = getattr(paddle, "get_device", lambda: "gpu:0")()
+                        idx = int(_dev_str.split(":")[-1]) if _dev_str.startswith("gpu") else 0
+
+                    dev_str = f"gpu:{idx}"
+                    print(f"CUDA detected with {gpu_count} device(s). Selecting '{dev_str}'.")
+                    return dev_str
+                else:
+                    print("Paddle compiled with CUDA but no physical GPU detected -> CPU fallback.")
+                    return 'cpu'
+        except Exception as e:
+            # If paddle itself is not available yet or any error happens, be
+            # conservative and use CPU.
+            print(f"Warning: Unable to query paddle for CUDA capability ({e}). Falling back to CPU.")
+            return 'cpu'
+
     def __init__(self, confidence_threshold: float = 0.5, ocr_lang: str = "en", 
                  enable_nms: bool = True, nms_iou_threshold: float = 0.5,
-                 enable_roi_preprocessing: bool = False):
+                 enable_roi_preprocessing: bool = False,
+                 perform_deduplication: bool = True, deduplication_iou_threshold: float = 0.5,
+                 device: Optional[str] = None):
         """
         Initialize the text extraction pipeline
         
@@ -55,36 +99,88 @@ class TextExtractionPipeline:
             enable_nms: Whether to apply Non-Maximum Suppression to remove overlapping detections
             nms_iou_threshold: IoU threshold for NMS
             enable_roi_preprocessing: Whether to apply ROI preprocessing for better OCR
+            perform_deduplication: Whether to perform detection deduplication
+            deduplication_iou_threshold: IoU threshold for detection deduplication
+            device: Device to use for PaddleOCR ('gpu' or 'cpu')
         """
         self.confidence_threshold = confidence_threshold
         self.ocr_lang = ocr_lang
         self.enable_nms = enable_nms
         self.nms_iou_threshold = nms_iou_threshold
         self.enable_roi_preprocessing = enable_roi_preprocessing
+        self.perform_deduplication = perform_deduplication
+        self.deduplication_iou_threshold = deduplication_iou_threshold
+        
+        # Decide compute device (GPU preferred if available)
+        self.device = self._get_device(device)
+        print(f"Using '{self.device}' device for PaddleOCR (fallback handled automatically).")
+        
+        # ------------------------------------------------------------------
+        # Prepare the process for Paddle usage (set env vars, clear Torch caches
+        # if it was imported earlier, etc.).  This mitigates cuDNN / cuBLAS DLL
+        # conflicts when Torch and Paddle live in the same interpreter.
+        # ------------------------------------------------------------------
+        try:
+            GPUManager.global_instance().use_paddle()
+        except Exception as _gpu_exc:  # pragma: no cover – never fatal
+            print(f"[GPUManager] Warning: could not switch to paddle mode: {_gpu_exc}")
         
         # Initialize ROI preprocessor
         if self.enable_roi_preprocessing:
             self.roi_preprocessor = ROIPreprocessor()
             self.roi_preprocessor.set_debug_mode(True)  # Enable debug mode for now
         
-        # Initialize PaddleOCR with version compatibility
-        try:
-            # Try PP-OCRv5 first (newest)
-            print("Trying PP-OCRv5...")
-            self.ocr = PaddleOCR(ocr_version="PP-OCRv5", lang=ocr_lang, use_angle_cls=True)
-            print("✓ PP-OCRv5 initialized successfully!")
-        except Exception as e:
-            try:
-                # Fallback to PP-OCRv4
-                print("PP-OCRv5 not available, trying PP-OCRv4...")
-                self.ocr = PaddleOCR(ocr_version="PP-OCRv4", lang=ocr_lang, use_angle_cls=True)
-                print("✓ PP-OCRv4 initialized successfully!")
-            except Exception as e2:
-                # Fallback to default version
-                print("PP-OCRv4 not available, using default version...")
-                self.ocr = PaddleOCR(lang=ocr_lang)
-                print("✓ Default PaddleOCR version initialized!")     
+        # Initialize PaddleOCR with correct parameters for your version
+        self.ocr = None
+        self.ocr_available = False
+        
+        # -------------------------------------------------------------
+        # Try to initialise PaddleOCR with GPU first, gracefully
+        # falling back to CPU if anything goes wrong.  This supports
+        # both the new `device` API and the legacy `use_gpu` flag.
+        # -------------------------------------------------------------
 
+        # -------- 1st attempt: preferred device (gpu/cpu) via new API --------
+        try:
+            print(f"Trying PaddleOCR initialisation with device='{self.device}' …")
+            self.ocr = PaddleOCR(lang=ocr_lang, device=self.device, use_textline_orientation=True)
+            self.ocr_available = True
+            print(f"✓ PaddleOCR initialised successfully on {self.device.upper()}!")
+        except Exception as e:
+            print(f"Initialisation with device parameter failed: {e}")
+
+            # -------- 2nd attempt: legacy API with explicit GPU flag --------
+            try:
+                legacy_gpu_flag = self.device == 'gpu'
+                print(f"Trying legacy initialisation with use_gpu={legacy_gpu_flag} …")
+                self.ocr = PaddleOCR(lang=ocr_lang, use_gpu=legacy_gpu_flag, use_textline_orientation=True)
+                self.ocr_available = True
+                dev_str = 'GPU' if legacy_gpu_flag else 'CPU'
+                print(f"✓ PaddleOCR initialised successfully with legacy flag on {dev_str}!")
+            except Exception as e2:
+                print(f"Legacy initialisation failed: {e2}")
+
+                # -------- 3rd attempt: force CPU device --------
+                try:
+                    print("Trying explicit CPU initialisation to guarantee fallback …")
+                    self.ocr = PaddleOCR(lang=ocr_lang, device='cpu', use_textline_orientation=True)
+                    self.ocr_available = True
+                    print("✓ PaddleOCR initialised successfully on CPU!")
+                except Exception as e3:
+                    print(f"CPU explicit initialisation failed: {e3}")
+
+                    # -------- Final attempt: minimal parameters (defaults to CPU) --------
+                    try:
+                        print("Trying with minimal parameters …")
+                        self.ocr = PaddleOCR(lang=ocr_lang)
+                        self.ocr_available = True
+                        print("✓ PaddleOCR initialised successfully with minimal parameters (CPU)!")
+                    except Exception as e4:
+                        print(f"❌ FATAL: All PaddleOCR initialization attempts failed: {e4}")
+                        print("Setting OCR to None - text extraction will use PDF text only.")
+                        self.ocr = None
+                        self.ocr_available = False
+        
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
             PLCTextPattern("input", r"I\d+\.\d+", 10, "Input addresses (I0.1, I1.2, etc.)"),
@@ -257,6 +353,11 @@ class TextExtractionPipeline:
         """Extract text using OCR from detected symbol regions"""
         text_regions = []
         
+        # Safety check: If OCR is not available, return empty list
+        if not self.ocr_available or self.ocr is None:
+            print("Warning: OCR not available - skipping OCR text extraction")
+            return text_regions
+        
         try:
             # Convert PDF pages to images for OCR
             doc = fitz.open(str(pdf_file))
@@ -404,22 +505,32 @@ class TextExtractionPipeline:
                                                 roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
                                                 roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
                                                 
-                                                # Get bounding box
+                                                # Get bounding box in page coordinates
                                                 min_x = float(np.min(roi_bbox[:, 0]))
                                                 min_y = float(np.min(roi_bbox[:, 1]))
                                                 max_x = float(np.max(roi_bbox[:, 0]))
                                                 max_y = float(np.max(roi_bbox[:, 1]))
                                                 
+                                                # Transform to global coordinates using associated symbol's snippet position
+                                                global_bbox = self._transform_to_global_coordinates(
+                                                    (min_x, min_y, max_x, max_y), 
+                                                    detection, 
+                                                    original_width, 
+                                                    original_height,
+                                                    current_width,
+                                                    current_height
+                                                )
+                                                
                                                 text_region = TextRegion(
                                                     text=text.strip(),
                                                     confidence=float(confidence),
-                                                    bbox=(min_x, min_y, max_x, max_y),
+                                                    bbox=global_bbox,
                                                     source="ocr",
                                                     page=page_num + 1,
                                                     associated_symbol=detection
                                                 )
                                                 text_regions.append(text_region)
-                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f})")
+                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
                                             except Exception as e:
                                                 print(f"Warning: Error processing OCR text '{text}': {e}")
                                                 continue
@@ -450,22 +561,32 @@ class TextExtractionPipeline:
                                                 roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
                                                 roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
                                                 
-                                                # Get bounding box
+                                                # Get bounding box in page coordinates
                                                 min_x = float(np.min(roi_bbox[:, 0]))
                                                 min_y = float(np.min(roi_bbox[:, 1]))
                                                 max_x = float(np.max(roi_bbox[:, 0]))
                                                 max_y = float(np.max(roi_bbox[:, 1]))
                                                 
+                                                # Transform to global coordinates using associated symbol's snippet position
+                                                global_bbox = self._transform_to_global_coordinates(
+                                                    (min_x, min_y, max_x, max_y), 
+                                                    detection, 
+                                                    original_width, 
+                                                    original_height,
+                                                    current_width,
+                                                    current_height
+                                                )
+                                                
                                                 text_region = TextRegion(
                                                     text=text.strip(),
                                                     confidence=float(confidence),
-                                                    bbox=(min_x, min_y, max_x, max_y),
+                                                    bbox=global_bbox,
                                                     source="ocr",
                                                     page=page_num + 1,
                                                     associated_symbol=detection
                                                 )
                                                 text_regions.append(text_region)
-                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f})")
+                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
                                             except Exception as e:
                                                 print(f"Warning: Error processing OCR text '{text}': {e}")
                                                 continue
@@ -483,6 +604,93 @@ class TextExtractionPipeline:
             print(f"Warning: OCR extraction failed: {e}")
         
         return text_regions
+    
+    def _transform_to_global_coordinates(self, page_bbox: Tuple[float, float, float, float], 
+                                       detection: Dict, original_width: float, original_height: float,
+                                       current_width: float, current_height: float) -> Tuple[float, float, float, float]:
+        """Transform page-level coordinates to global coordinates using snippet position"""
+        try:
+            # First try to get offset from bbox comparison (most accurate)
+            bbox_snippet = detection.get("bbox_snippet", {})
+            bbox_global = detection.get("bbox_global", {})
+            
+            if bbox_snippet and bbox_global:
+                # Calculate offset from snippet to global coordinates
+                if isinstance(bbox_snippet, dict) and isinstance(bbox_global, dict):
+                    offset_x = bbox_global.get("x1", 0) - bbox_snippet.get("x1", 0)
+                    offset_y = bbox_global.get("y1", 0) - bbox_snippet.get("y1", 0)
+                else:
+                    # Handle list format
+                    offset_x = bbox_global[0] - bbox_snippet[0] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+                    offset_y = bbox_global[1] - bbox_snippet[1] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+                
+                print(f"Using bbox offset: ({offset_x}, {offset_y})")
+            else:
+                # Fallback: use snippet position
+                snippet_pos = detection.get("snippet_position", {})
+                if not snippet_pos:
+                    print(f"Warning: Cannot transform coordinates - no snippet position or bbox info available")
+                    return page_bbox
+                
+                row = snippet_pos.get("row", 0)
+                col = snippet_pos.get("col", 0)
+                
+                # For edge snippets, we need to look up the actual coordinates
+                # Default calculation for non-edge snippets
+                snippet_width = 1500
+                snippet_height = 1200
+                overlap = 500
+                step_w = snippet_width - overlap  # 1000
+                step_h = snippet_height - overlap  # 700
+                
+                # Calculate default offset
+                offset_x = col * step_w
+                offset_y = row * step_h
+                
+                # Calculate grid dimensions to detect edge snippets
+                cols = max(1, (original_width - overlap) // step_w)
+                rows = max(1, (original_height - overlap) // step_h)
+                
+                if original_width > cols * step_w:
+                    cols += 1
+                if original_height > rows * step_h:
+                    rows += 1
+                
+                # Adjust for edge snippets
+                # Right edge adjustment (last column)
+                if col == cols - 1 and col > 0:  # Last column
+                    # Ensure snippet doesn't exceed image width
+                    offset_x = max(col * step_w, original_width - snippet_width)
+                
+                # Bottom edge adjustment (last row)
+                if row == rows - 1 and row > 0:  # Last row
+                    # Ensure snippet doesn't exceed image height
+                    offset_y = max(row * step_h, original_height - snippet_height)
+                
+                print(f"Snippet position: row={row}, col={col}, adjusted offset=({offset_x}, {offset_y})")
+            
+            # Apply transformation
+            x1, y1, x2, y2 = page_bbox
+            
+            # Scale from current page size back to original size if needed
+            if current_width != original_width or current_height != original_height:
+                scale_x = original_width / current_width
+                scale_y = original_height / current_height
+                x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
+            
+            # Add snippet offset to get global coordinates
+            global_x1 = x1 + offset_x
+            global_y1 = y1 + offset_y
+            global_x2 = x2 + offset_x
+            global_y2 = y2 + offset_y
+            
+            print(f"Coordinate transform: page({x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}) + offset({offset_x},{offset_y}) = global({global_x1:.1f},{global_y1:.1f},{global_x2:.1f},{global_y2:.1f})")
+            
+            return (global_x1, global_y1, global_x2, global_y2)
+            
+        except Exception as e:
+            print(f"Warning: Error transforming coordinates: {e}")
+            return page_bbox
     
     def _combine_and_associate_texts(self, pdf_texts: List[TextRegion], 
                                    ocr_texts: List[TextRegion], 

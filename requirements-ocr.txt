@@ -1,0 +1,4 @@
+paddlepaddle-gpu==3.0.0
+paddleocr==3.0.1
+paddlex==3.0.1
+shapely==2.1.1
