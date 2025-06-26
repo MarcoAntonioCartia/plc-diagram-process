@@ -2,7 +2,7 @@
 Detection PDF Creator
 Creates enhanced PDFs with overlays from detection and text extraction.
 This version uses a PNG-first approach to solve coordinate system issues
-with rotated PDFs.
+with rotated PDFs and integrates relative coordinate positioning.
 """
 
 import json
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from .basic_pdf_creator import BasicPDFCreator
+from ..ocr.relative_coordinate_system import RelativeCoordinateSystem
 
 class DetectionPDFCreator(BasicPDFCreator):
     """
@@ -29,6 +30,7 @@ class DetectionPDFCreator(BasicPDFCreator):
         })
         self.line_width = 1.0
         self.min_conf = float(min_conf)
+        self.rel_coord_system = RelativeCoordinateSystem()
 
     def create_enhanced_pdf(self,
                            image_file: Path,
@@ -312,30 +314,148 @@ class DetectionPDFCreator(BasicPDFCreator):
         print(f"Detection filtering: {total_count} total → {filtered_count} displayed (≥{self.min_conf:.1f} confidence)")
 
     def _draw_text_regions(self, page: fitz.Page, text_regions: List[Dict], scale: tuple[float, float]):
-        """Draws text region boxes and the extracted text directly onto the page."""
+        """
+        Draws text region boxes and the extracted text using relative coordinate positioning.
+        This method fixes coordinate transformation issues by positioning text relative to YOLO boxes.
+        """
+        print(f"Drawing {len(text_regions)} text regions using relative coordinate system...")
+        
+        # Group text regions by their associated symbols for efficient processing
+        symbol_groups = {}
+        unassociated_regions = []
+        
         for region in text_regions:
-            bbox = region.get('bbox')
             text_content = region.get('text', '')
-
-            if not bbox or not text_content:
+            if not text_content:
                 continue
-
-            # Text regions are already in the same global coordinate system as detections
-            # No additional scaling needed - just apply offset and final scaling
+                
+            # Check if region has an associated symbol
+            symbol = region.get('associated_symbol', {})
+            if symbol:
+                # Create unique symbol identifier
+                symbol_id = f"{symbol.get('class_name', 'unknown')}_{symbol.get('snippet_source', 'unknown')}"
+                
+                if symbol_id not in symbol_groups:
+                    symbol_groups[symbol_id] = {
+                        'symbol_info': symbol,
+                        'text_regions': []
+                    }
+                symbol_groups[symbol_id]['text_regions'].append(region)
+            else:
+                # Handle regions without symbol association (fallback to old method)
+                unassociated_regions.append(region)
+        
+        print(f"  Grouped into {len(symbol_groups)} symbols with {len(unassociated_regions)} unassociated regions")
+        
+        # Draw text regions grouped by symbols using relative coordinates
+        for symbol_id, symbol_data in symbol_groups.items():
+            self._draw_symbol_text_group(page, symbol_data, scale)
+        
+        # Draw unassociated regions using the old method as fallback
+        for region in unassociated_regions:
+            self._draw_single_text_region_fallback(page, region, scale)
+    
+    def _draw_symbol_text_group(self, page: fitz.Page, symbol_data: Dict, scale: tuple[float, float]):
+        """
+        Draw all text regions associated with a single symbol using relative coordinates.
+        """
+        symbol_info = symbol_data['symbol_info']
+        text_regions = symbol_data['text_regions']
+        
+        # Get symbol bounding box
+        symbol_bbox_global = symbol_info.get('bbox_global', {})
+        if isinstance(symbol_bbox_global, dict):
+            symbol_bbox = [
+                symbol_bbox_global.get('x1', 0),
+                symbol_bbox_global.get('y1', 0),
+                symbol_bbox_global.get('x2', 0),
+                symbol_bbox_global.get('y2', 0)
+            ]
+        else:
+            symbol_bbox = symbol_bbox_global
+        
+        if len(symbol_bbox) < 4:
+            print(f"  Warning: Invalid symbol bbox for {symbol_info.get('class_name', 'unknown')}")
+            return
+        
+        # Convert each text region from relative to absolute coordinates
+        for region in text_regions:
+            text_content = region.get('text', '')
+            confidence = region.get('confidence', 0)
+            
+            # Check if region already has relative coordinates
+            if region.get('coordinate_system') == 'relative_to_symbol':
+                # Use existing relative coordinates
+                relative_bbox = region.get('bbox', [])
+            else:
+                # Convert absolute coordinates to relative coordinates
+                absolute_bbox = region.get('bbox', [])
+                if len(absolute_bbox) >= 4:
+                    relative_bbox = [
+                        absolute_bbox[0] - symbol_bbox[0],  # rel_x1
+                        absolute_bbox[1] - symbol_bbox[1],  # rel_y1
+                        absolute_bbox[2] - symbol_bbox[0],  # rel_x2
+                        absolute_bbox[3] - symbol_bbox[1]   # rel_y2
+                    ]
+                else:
+                    continue
+            
+            if len(relative_bbox) < 4:
+                continue
+            
+            # Convert relative coordinates back to absolute coordinates for rendering
+            absolute_bbox = [
+                symbol_bbox[0] + relative_bbox[0],  # abs_x1
+                symbol_bbox[1] + relative_bbox[1],  # abs_y1
+                symbol_bbox[0] + relative_bbox[2],  # abs_x2
+                symbol_bbox[1] + relative_bbox[3]   # abs_y2
+            ]
+            
+            # Apply offset and scaling
             ox, oy = self._offset
-            x1, y1, x2, y2 = bbox
+            x1, y1, x2, y2 = absolute_bbox
             x1 += ox; y1 += oy; x2 += ox; y2 += oy
             rect = fitz.Rect(x1 * scale[0], y1 * scale[1], x2 * scale[0], y2 * scale[1])
             
             # Draw the bounding box for the text region with a dashed line
             page.draw_rect(rect, color=self.colors['text_region_box'], width=self.line_width, dashes="[2 2] 0")
-
-            # Insert the extracted text inside the box.
-            # insert_textbox handles word wrapping and clipping automatically.
+            
+            # Add confidence indicator to text
+            display_text = f"{text_content} ({confidence:.2f})" if confidence > 0 else text_content
+            
+            # Insert the extracted text inside the box
             page.insert_textbox(
                 rect,
-                text_content,
+                display_text,
                 fontname="helv",
                 fontsize=self.font_size,
                 color=(0, 0.4, 0)  # Darker green for readability
             )
+    
+    def _draw_single_text_region_fallback(self, page: fitz.Page, region: Dict, scale: tuple[float, float]):
+        """
+        Fallback method for drawing text regions without symbol association.
+        Uses the original coordinate system.
+        """
+        bbox = region.get('bbox')
+        text_content = region.get('text', '')
+        
+        if not bbox or not text_content:
+            return
+        
+        # Use original method for unassociated regions
+        ox, oy = self._offset
+        x1, y1, x2, y2 = bbox
+        x1 += ox; y1 += oy; x2 += ox; y2 += oy
+        rect = fitz.Rect(x1 * scale[0], y1 * scale[1], x2 * scale[0], y2 * scale[1])
+        
+        # Draw with different color to indicate fallback method
+        page.draw_rect(rect, color=(1, 0.5, 0), width=self.line_width, dashes="[4 2] 0")  # Orange dashed
+        
+        page.insert_textbox(
+            rect,
+            f"{text_content} [fallback]",
+            fontname="helv",
+            fontsize=self.font_size,
+            color=(0.8, 0.4, 0)  # Orange text
+        )
