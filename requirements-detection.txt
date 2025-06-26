@@ -4,5 +4,7 @@ torchaudio>=2.3.0
 ultralytics==8.2.13
 opencv-python==4.9.0.80
 scipy>=1.7.0
-transformers>=4.20.0
-onnxruntime>=1.12.0 
+transformers>=4.33.0,<4.34.0
+onnxruntime>=1.18.0,<1.19.0
+PyYAML>=6.0
+streamlit>=1.20.0 

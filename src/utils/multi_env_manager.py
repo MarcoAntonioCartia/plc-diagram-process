@@ -117,13 +117,35 @@ class MultiEnvironmentManager:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def setup(self, *, force_recreate: bool = False) -> bool:
-        """Create venvs and install the dedicated package sets."""
+    def setup(self, *, force_recreate: bool = False, pip_check: bool = False) -> bool:
+        """Create venvs and install the dedicated package sets.
+
+        Parameters
+        ----------
+        force_recreate : bool, optional
+            If *True* existing venv folders will be deleted first.
+        pip_check : bool, optional
+            If *True* run a fast ``pip install --dry-run`` dependency
+            resolver before creating the heavy venvs.  Skipping this check
+            can save time in the common case but enables an early failure
+            mode when debugging broken requirements lists.
+        """
 
         if self.dry_run:
             print("[MultiEnv] DRY-RUN: would create environments in", self.env_root)
         else:
             self.env_root.mkdir(parents=True, exist_ok=True)
+
+        # ------------------------------------------------------------------
+        # Optional fast-fail dependency resolution check *before* heavy venv
+        # creation.  Enabled via the ``--pip-check`` CLI flag or when
+        # ``pip_check`` is passed explicitly.
+        # ------------------------------------------------------------------
+        if pip_check:
+            if not self._preflight_resolve("detection", self._DETECTION_PKGS):
+                return False
+            if not self._preflight_resolve("ocr", self._OCR_PKGS):
+                return False
 
         ok = True
         ok &= self._ensure_env(self.detection_env_path, self._DETECTION_PKGS, force_recreate)
@@ -248,18 +270,34 @@ class MultiEnvironmentManager:
             print(f"[MultiEnv] DRY-RUN: would install packages into {env_path.name}: {' '.join(package_cmd)}")
             return True
 
-        print(f"[MultiEnv] Installing packages into {env_path.name} …")
+        print(f"[MultiEnv] Installing packages into {env_path.name} … (quiet mode)")
 
         # 1) Ensure build tools are present *from PyPI* so that subsequent
         #    installs (which may point to vendor wheels) never fail to find
         #    ``wheel``.
         subprocess.check_call([
-            str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"
+            str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel", "--quiet", "--no-input"
         ])
 
         # 2) Install the actual requirements (may reference vendor wheel index)
-        cmd = [str(pip_exe), "install"] + package_cmd
-        return subprocess.call(cmd) == 0
+        cmd = [
+            str(pip_exe),
+            "install",
+            "--progress-bar",
+            "off",
+            "--quiet",
+            "--no-input",
+        ] + package_cmd
+
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            print(f"[MultiEnv] ✓ {env_path.name} ready")
+            return True
+
+        # On failure show *last* 20 lines to aid debugging
+        tail = "\n".join(proc.stderr.strip().splitlines()[-20:])
+        print(f"[MultiEnv] ✗ pip failed for {env_path.name}:\n{tail}")
+        return False
 
     def _run_simple_python(self, python: Path, code: str) -> bool:
         try:
@@ -330,6 +368,45 @@ class MultiEnvironmentManager:
                         return {"status": "error", "error": err_msg}
                     continue
 
+    # ------------------------------------------------------------------
+    # Dependency pre-resolution – saves 30 min installs when impossible
+    # ------------------------------------------------------------------
+    def _preflight_resolve(self, name: str, package_cmd: list[str]) -> bool:
+        """Run ``pip install --dry-run`` in the *current* interpreter to
+        verify that the requirements can be solved.  Skips the actual wheel
+        downloads/builds, finishes in seconds, and prints the full resolver
+        error if it fails.
+        """
+
+        if self.dry_run:
+            print(f"[MultiEnv] DRY-RUN: would dry-run dependency resolution for {name}_env")
+            return True
+
+        print(f"[MultiEnv] Pre-resolving dependencies for {name}_env …")
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--dry-run",
+            "--no-input",
+            "--no-cache-dir",
+        ] + package_cmd
+
+        # Capture output to avoid log spam unless there is a problem
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            print(f"[MultiEnv] {name}_env dependencies OK")
+            return True
+
+        print(
+            f"[MultiEnv] Dependency resolution failed for {name}_env, aborting setup.\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"--- pip stderr ---\n{proc.stderr}\n--- end stderr ---"
+        )
+        return False
+
 
 # ---------------------------------------------------------------------------
 # CLI entry-point for convenience
@@ -342,12 +419,13 @@ if __name__ == "__main__":
     parser.add_argument("--force-recreate", action="store_true", help="recreate venvs even if they exist")
     parser.add_argument("--health-check", action="store_true", help="run import + GPU tests for both envs")
     parser.add_argument("--dry-run", action="store_true", help="show actions without executing them")
+    parser.add_argument("--pip-check", action="store_true", help="run a 'pip install --dry-run' resolution before creating envs")
     args = parser.parse_args()
 
     mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
 
     if args.setup:
-        if not mgr.setup(force_recreate=args.force_recreate):
+        if not mgr.setup(force_recreate=args.force_recreate, pip_check=args.pip_check):
             sys.exit(1)
     if args.health_check:
         if not mgr.health_check():

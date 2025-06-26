@@ -46,6 +46,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--health-check", action="store_true", help="Run GPU import tests and exit")
     p.add_argument("--force-recreate", action="store_true", help="Recreate venvs from scratch during setup")
     p.add_argument("--dry-run", action="store_true", help="Only print actions – no venv creation / installs")
+    p.add_argument("--pip-check", action="store_true", help="Run a dependency resolver dry-run before installing packages")
     return p.parse_args()
 
 
@@ -62,7 +63,7 @@ def main() -> None:  # noqa: D401 – script entry-point
     # Maintenance modes (setup / health-check only)
     # ------------------------------------------------------------------
     if args.setup:
-        ok = mgr.setup(force_recreate=args.force_recreate)
+        ok = mgr.setup(force_recreate=args.force_recreate, pip_check=args.pip_check)
         sys.exit(0 if ok else 1)
 
     if args.health_check:
@@ -76,13 +77,13 @@ def main() -> None:  # noqa: D401 – script entry-point
         sys.exit("Error: PDF path is required when not using --setup / --health-check")
 
     # 1) Ensure envs exist (but do not force recreation unless asked)
-    if not mgr.setup(force_recreate=False):
+    if not mgr.setup(force_recreate=False, pip_check=args.pip_check):
         sys.exit("❌  Failed to create virtual-environments")
 
     # 2) Quick GPU import test – if it fails attempt a repair once
     if not mgr.health_check():
         print("[meta] Health check failed – attempting env repair…", file=sys.stderr)
-        if not mgr.setup(force_recreate=True) or not mgr.health_check():
+        if not mgr.setup(force_recreate=True, pip_check=args.pip_check) or not mgr.health_check():
             sys.exit("❌  Split environments remain broken after repair attempt")
 
     # 3) Run detection + OCR

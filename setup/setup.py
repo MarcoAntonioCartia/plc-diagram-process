@@ -1861,6 +1861,9 @@ def main():
     # split envs
     parser.add_argument('--multi-env', action='store_true',
                        help='After main venv is ready create detection_env (torch) and ocr_env (paddle) via MultiEnvironmentManager')
+    # Optional: dry-run dependency resolution inside the split envs before full install
+    parser.add_argument('--pip-check', action='store_true',
+                       help='Run a quick "pip install --dry-run" resolver inside the current interpreter before creating split environments')
     
     args = parser.parse_args()
     
@@ -1905,7 +1908,7 @@ def main():
                 from src.utils.multi_env_manager import MultiEnvironmentManager
 
                 mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
-                if mgr.setup() and mgr.health_check():
+                if mgr.setup(pip_check=args.pip_check) and mgr.health_check():
                     print("\n✓ Multi-environment setup completed successfully!")
                 else:
                     print("\n⚠ Multi-environment setup reported issues. See log above.")
