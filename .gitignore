@@ -38,6 +38,7 @@ venv.bak/
 .venv/
 yolo/
 data/yolo/
+environments/
 
 
 # ===== Project-Specific Data =====

@@ -97,19 +97,21 @@ class MultiEnvironmentManager:
         core_req = self.project_root / "requirements-core.txt"
         ocr_req = self.project_root / "requirements-ocr.txt"
 
+        # Install PyPI packages first, then give framework-specific wheels via
+        # an *additional* index URL so we can still resolve common
+        # dependencies like ``wheel`` from the default repository.
+
         self._DETECTION_PKGS = [
-            "--upgrade", "pip", "setuptools", "wheel",
-            "--index-url", "https://download.pytorch.org/whl/cu128",
+            "--extra-index-url", "https://download.pytorch.org/whl/cu128",
             "-r", str(core_req),
             "-r", str(det_req),
         ]
 
         self._OCR_PKGS = [
-            "--upgrade", "pip", "setuptools", "wheel",
-            "requests",
+            "--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
+            "requests",  # needed by many helpers, keep it explicit
             "-r", str(core_req),
             "-r", str(ocr_req),
-            "-i", "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
         ]
 
     # ------------------------------------------------------------------
@@ -247,6 +249,15 @@ class MultiEnvironmentManager:
             return True
 
         print(f"[MultiEnv] Installing packages into {env_path.name} …")
+
+        # 1) Ensure build tools are present *from PyPI* so that subsequent
+        #    installs (which may point to vendor wheels) never fail to find
+        #    ``wheel``.
+        subprocess.check_call([
+            str(python_exe), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"
+        ])
+
+        # 2) Install the actual requirements (may reference vendor wheel index)
         cmd = [str(pip_exe), "install"] + package_cmd
         return subprocess.call(cmd) == 0
 
