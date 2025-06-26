@@ -1421,7 +1421,11 @@ if torch.cuda.is_available():
         # Clean Ultralytics cache before installing to prevent path conflicts
         self.clean_ultralytics_cache()
         
-        requirements_file = self.project_root / "requirements.txt"
+        # In hierarchical env setup we keep only *core* libs in this venv.
+        requirements_file = self.project_root / "requirements-core.txt"
+        if not requirements_file.exists():
+            # Fallback for legacy checkouts where the split files are missing
+            requirements_file = self.project_root / "requirements.txt"
         
         if not requirements_file.exists():
             print(f"✗ Requirements file not found: {requirements_file}")
@@ -1557,13 +1561,20 @@ if torch.cuda.is_available():
         print("\n=== Installation Verification ===")
         
         test_packages = [
-            ("torch", "PyTorch"),
-            ("cv2", "OpenCV"),
             ("pandas", "Pandas"),
-            ("numpy", "NumPy"),
-            ("paddle", "Paddle"),
-            ("paddleocr", "PaddleOCR")
+            ("numpy", "NumPy")
         ]
+        
+        # In multi-env mode the heavy frameworks live in their own venvs –
+        # verifying them here would fail unnecessarily.  Only test them when
+        # we actually installed them in this environment.
+        if not getattr(self, "skip_gpu_packages", False):
+            test_packages[:0] = [
+                ("torch", "PyTorch"),
+                ("cv2", "OpenCV"),
+                ("paddle", "Paddle"),
+                ("paddleocr", "PaddleOCR"),
+            ]
         
         failed_packages = []
         
@@ -1573,7 +1584,11 @@ if torch.cuda.is_available():
                     print(f"  DRY RUN: Would test {description}")
                     continue
                 
-                if package == "torch":
+                if package == "pandas":
+                    code = f"import {package}; print('✓ {description} working')"
+                elif package == "numpy":
+                    code = f"import {package}; print('✓ {description} working')"
+                elif package == "torch":
                     code = (
                         "import torch, json, sys;"
                         "info = {'cuda': torch.cuda.is_available(), 'count': torch.cuda.device_count()};"
@@ -1869,10 +1884,27 @@ def main():
         
         if success and args.multi_env:
             try:
+                import importlib.util, subprocess
+                if importlib.util.find_spec("requests") is None:
+                    print("[Setup] Installing missing 'requests' dependency in the main venv …")
+                    subprocess.check_call([
+                        str(setup.venv_pip), "install", "--upgrade", "requests>=2.25"
+                    ])
+                    import importlib
+                    importlib.invalidate_caches()
+                    try:
+                        import requests  # noqa: F401
+                    except ImportError:
+                        print("⚠ 'requests' still not importable after installation – multi-env step may fail")
+            except Exception as ensure_exc:
+                print(f"⚠ Could not ensure 'requests' availability: {ensure_exc}")
+        
+        if success and args.multi_env:
+            try:
                 from pathlib import Path
                 from src.utils.multi_env_manager import MultiEnvironmentManager
 
-                mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent)
+                mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
                 if mgr.setup() and mgr.health_check():
                     print("\n✓ Multi-environment setup completed successfully!")
                 else:

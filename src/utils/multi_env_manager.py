@@ -60,26 +60,27 @@ class MultiEnvironmentManager:
     DETECTION_ENV_NAME = "detection_env"
     OCR_ENV_NAME = "ocr_env"
 
-    # Package sets for the two envs ------------------------------------------------
-    _DETECTION_PKGS = [
-        "--upgrade", "pip", "setuptools", "wheel",
-        # fixed GPU framework (torch cu128)
-        "torch", "torchvision", "torchaudio",
-        "--index-url", "https://download.pytorch.org/whl/cu128",
-    ]
-
-    _OCR_PKGS = [
-        "--upgrade", "pip", "setuptools", "wheel",
-        "requests",  # required by paddleocr at runtime
-        "paddleocr",
-        # Paddle GPU wheel from paddle.org.cn (cu126 build)
-        "paddlepaddle-gpu==3.0.0",
-        "-i", "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
-    ]
+    # Default package stubs – will be finalised in __init__ once we know the
+    # absolute path of the project root.  Keep them here only for type hints.
+    _DETECTION_PKGS: list[str]
+    _OCR_PKGS: list[str]
 
     # ---------------------------------------------------------------------
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, *, dry_run: bool = False):
+        """Initialise the manager.
+
+        Parameters
+        ----------
+        project_root : Path
+            Root of the PLC-Diagram-Processor repository.
+        dry_run : bool, optional
+            If *True* no venvs will actually be created and every destructive
+            action will be replaced by a log message.  Useful when running the
+            top-level setup script with the global --dry-run flag.
+        """
+
         self.project_root = project_root.resolve()
+        self.dry_run = dry_run
         self.env_root = self.project_root / "environments"
         self.detection_env_path = self.env_root / self.DETECTION_ENV_NAME
         self.ocr_env_path = self.env_root / self.OCR_ENV_NAME
@@ -87,13 +88,40 @@ class MultiEnvironmentManager:
         self.detection = _VenvPaths(self.detection_env_path)
         self.ocr = _VenvPaths(self.ocr_env_path)
 
+        # ------------------------------------------------------------------
+        # Build package installation commands referencing the split
+        # requirements files.  Using absolute paths avoids "pip install -r"
+        # lookup issues when the working directory is not the repo root.
+        # ------------------------------------------------------------------
+        det_req = self.project_root / "requirements-detection.txt"
+        core_req = self.project_root / "requirements-core.txt"
+        ocr_req = self.project_root / "requirements-ocr.txt"
+
+        self._DETECTION_PKGS = [
+            "--upgrade", "pip", "setuptools", "wheel",
+            "--index-url", "https://download.pytorch.org/whl/cu128",
+            "-r", str(core_req),
+            "-r", str(det_req),
+        ]
+
+        self._OCR_PKGS = [
+            "--upgrade", "pip", "setuptools", "wheel",
+            "requests",
+            "-r", str(core_req),
+            "-r", str(ocr_req),
+            "-i", "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
+        ]
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def setup(self, *, force_recreate: bool = False) -> bool:
         """Create venvs and install the dedicated package sets."""
 
-        self.env_root.mkdir(parents=True, exist_ok=True)
+        if self.dry_run:
+            print("[MultiEnv] DRY-RUN: would create environments in", self.env_root)
+        else:
+            self.env_root.mkdir(parents=True, exist_ok=True)
 
         ok = True
         ok &= self._ensure_env(self.detection_env_path, self._DETECTION_PKGS, force_recreate)
@@ -101,7 +129,14 @@ class MultiEnvironmentManager:
         return ok
 
     def health_check(self) -> bool:
-        """Import torch/paddle inside each venv and check GPU availability."""
+        """Import torch/paddle inside each venv and check GPU availability.
+
+        Skipped entirely in dry-run mode because the envs do not exist.
+        """
+
+        if self.dry_run:
+            print("[MultiEnv] DRY-RUN: skipping health check – envs not created")
+            return True
 
         torch_check = self._run_simple_python(
             self.detection.python,
@@ -191,16 +226,26 @@ class MultiEnvironmentManager:
     # ------------------------------------------------------------------
     def _ensure_env(self, env_path: Path, package_cmd: list[str], force: bool) -> bool:
         if force and env_path.exists():
-            shutil.rmtree(env_path, ignore_errors=True)
+            if self.dry_run:
+                print(f"[MultiEnv] DRY-RUN: would remove existing {env_path}")
+            else:
+                shutil.rmtree(env_path, ignore_errors=True)
 
         if not env_path.exists():
-            print(f"[MultiEnv] Creating venv {env_path.name} …")
-            subprocess.check_call([sys.executable, "-m", "venv", str(env_path)])
+            if self.dry_run:
+                print(f"[MultiEnv] DRY-RUN: would create venv {env_path.name}")
+            else:
+                print(f"[MultiEnv] Creating venv {env_path.name} …")
+                subprocess.check_call([sys.executable, "-m", "venv", str(env_path)])
 
         python_exe = _VenvPaths(env_path).python
         pip_exe = _VenvPaths(env_path).pip
 
         # Upgrade tools & install packages
+        if self.dry_run:
+            print(f"[MultiEnv] DRY-RUN: would install packages into {env_path.name}: {' '.join(package_cmd)}")
+            return True
+
         print(f"[MultiEnv] Installing packages into {env_path.name} …")
         cmd = [str(pip_exe), "install"] + package_cmd
         return subprocess.call(cmd) == 0
@@ -285,9 +330,10 @@ if __name__ == "__main__":
     parser.add_argument("--setup", action="store_true", help="create both environments if missing")
     parser.add_argument("--force-recreate", action="store_true", help="recreate venvs even if they exist")
     parser.add_argument("--health-check", action="store_true", help="run import + GPU tests for both envs")
+    parser.add_argument("--dry-run", action="store_true", help="show actions without executing them")
     args = parser.parse_args()
 
-    mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent)
+    mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
 
     if args.setup:
         if not mgr.setup(force_recreate=args.force_recreate):
