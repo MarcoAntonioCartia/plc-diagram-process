@@ -282,6 +282,129 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
         else:
             return self.detdiagrams_folder
     
+    def _check_text_extraction_exists(self):
+        """Check if text extraction results already exist"""
+        detection_folder = self._get_effective_detection_folder()
+        text_extraction_folder = detection_folder.parent / "text_extraction"
+        
+        if not text_extraction_folder.exists():
+            return False
+        
+        # Check if we have text extraction files for all detection files
+        detection_files = list(detection_folder.glob("*_detections.json"))
+        text_files = list(text_extraction_folder.glob("*_text_extraction.json"))
+        
+        if len(text_files) == 0:
+            return False
+        
+        # Check if we have text extraction for each detection file
+        detection_names = {f.stem.replace("_detections", "") for f in detection_files}
+        text_names = {f.stem.replace("_text_extraction", "") for f in text_files}
+        
+        missing_text = detection_names - text_names
+        if missing_text:
+            print(f"Missing text extraction for: {', '.join(missing_text)}")
+            return False
+        
+        print(f"Found existing text extraction results for {len(text_files)} files")
+        return True
+    
+    def run_pdf_only_mode(self):
+        """Run only enhanced PDF creation (skip detection and text extraction)"""
+        print("Running Enhanced PDF Creation Only (Detection and Text Extraction Skipped)")
+        print("=" * 70)
+        
+        start_time = time.time()
+        
+        try:
+            # Check if both detection and text extraction results exist
+            detection_folder = self._get_effective_detection_folder()
+            text_extraction_folder = detection_folder.parent / "text_extraction"
+            
+            if not detection_folder.exists():
+                print(f"Error: Detection folder not found: {detection_folder}")
+                return False
+            
+            if not text_extraction_folder.exists():
+                print(f"Error: Text extraction folder not found: {text_extraction_folder}")
+                return False
+            
+            detection_files = list(detection_folder.glob("*_detections.json"))
+            text_files = list(text_extraction_folder.glob("*_text_extraction.json"))
+            
+            if not detection_files:
+                print(f"Error: No detection files found in {detection_folder}")
+                return False
+            
+            if not text_files:
+                print(f"Error: No text extraction files found in {text_extraction_folder}")
+                return False
+            
+            print(f"Found {len(detection_files)} detection files and {len(text_files)} text extraction files")
+            
+            # Initialize results for PDF-only mode
+            self.results["training"] = {"training_time": 0, "epochs": "skipped"}
+            self.results["detection"] = {"detection_time": 0, "status": "skipped"}
+            self.results["text_extraction"] = {"extraction_time": 0, "status": "skipped"}
+            
+            # Create enhanced PDFs
+            if self.create_enhanced_pdf:
+                print(f"\nPhase 1: Enhanced PDF Creation")
+                print("-" * 30)
+                self._run_enhanced_pdf_creation()
+            else:
+                print("Warning: --create-enhanced-pdf not specified, nothing to do")
+                return False
+            
+            # Generate summary report
+            print(f"\nPhase 2: Generating Summary")
+            print("-" * 30)
+            self._generate_pdf_only_summary_report()
+            
+            total_time = time.time() - start_time
+            
+            print(f"\nEnhanced PDF creation finished successfully!")
+            print(f"Total execution time: {total_time:.2f} seconds")
+            
+            return True
+            
+        except Exception as e:
+            print(f"\nPDF creation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _generate_pdf_only_summary_report(self):
+        """Generate summary report for PDF-only mode"""
+        
+        # Create summary for PDF-only mode
+        summary = {
+            "pipeline_mode": "pdf_creation_only",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "pdf_enhancement_results": self.results.get("pdf_enhancement", {}),
+            "performance_metrics": {
+                "pdf_enhancement_time": self.results.get("pdf_enhancement", {}).get("enhancement_time", 0),
+                "total_processing_time": self.results.get("pdf_enhancement", {}).get("enhancement_time", 0)
+            }
+        }
+        
+        # Save summary report
+        summary_file = self.detdiagrams_folder / "pdf_creation_summary.json"
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        # Print summary
+        print("\nPDF Creation Pipeline Summary:")
+        print("-" * 50)
+        if "pdf_enhancement" in self.results and self.results["pdf_enhancement"]:
+            print(f"PDF enhancement time: {self.results['pdf_enhancement']['enhancement_time']:.2f}s")
+            print(f"Enhanced PDFs created: {self.results['pdf_enhancement']['processed_files']}")
+            print(f"Success rate: {self.results['pdf_enhancement']['success_rate']:.1f}%")
+        
+        print(f"Summary saved to: {summary_file}")
+        
+        self.results["summary"] = summary
+    
     def _filter_detections_by_confidence(self, detection_file: Path, min_confidence: float) -> dict:
         """Filter detection JSON file by confidence threshold"""
         try:
@@ -728,9 +851,11 @@ def main():
     parser.add_argument('--ocr-lang', type=str, default='en',
                        help='OCR language (default: en)')
     parser.add_argument('--skip-text-extraction', action='store_true',
-                       help='Skip text extraction and only run detection pipeline')
+                       help='Skip text extraction phase (use existing text extraction results)')
     parser.add_argument('--skip-detection', action='store_true',
                        help='Skip detection and only run text extraction (requires existing detection results)')
+    parser.add_argument('--auto-skip-existing', action='store_true',
+                       help='Automatically skip phases if results already exist')
     
     # Enhanced PDF arguments
     parser.add_argument('--create-enhanced-pdf', action='store_true',
@@ -850,19 +975,42 @@ def main():
             detection_folder=args.detection_folder
         )
         
-        # Handle skip-detection mode
-        if args.skip_detection:
-            print("Detection will be skipped, running text extraction only...")
-            success = runner.run_text_extraction_only()
+        # Handle skip modes
+        if args.skip_detection and args.skip_text_extraction:
+            print("Both detection and text extraction will be skipped, running PDF creation only...")
+            success = runner.run_pdf_only_mode()
             
             if success:
-                print("\nText extraction pipeline completed successfully!")
+                print("\nPDF creation completed successfully!")
                 print("Results:")
-                print(f"- Text extraction results: {runner.detdiagrams_folder.parent / 'text_extraction'}")
-                if args.create_enhanced_pdf:
-                    print(f"- Enhanced PDFs: {runner.detdiagrams_folder.parent / 'enhanced_pdfs'}")
-                print(f"- Summary: {runner.detdiagrams_folder / 'text_extraction_summary.json'}")
+                print(f"- Enhanced PDFs: {runner.detdiagrams_folder.parent / 'enhanced_pdfs'}")
+                print(f"- Summary: {runner.detdiagrams_folder / 'pdf_creation_summary.json'}")
             return 0 if success else 1
+        
+        elif args.skip_detection:
+            # Check if we should auto-skip text extraction
+            if args.auto_skip_existing and runner._check_text_extraction_exists():
+                print("Text extraction results already exist, skipping to PDF creation...")
+                success = runner.run_pdf_only_mode()
+                
+                if success:
+                    print("\nPDF creation completed successfully!")
+                    print("Results:")
+                    print(f"- Enhanced PDFs: {runner.detdiagrams_folder.parent / 'enhanced_pdfs'}")
+                    print(f"- Summary: {runner.detdiagrams_folder / 'pdf_creation_summary.json'}")
+                return 0 if success else 1
+            else:
+                print("Detection will be skipped, running text extraction only...")
+                success = runner.run_text_extraction_only()
+                
+                if success:
+                    print("\nText extraction pipeline completed successfully!")
+                    print("Results:")
+                    print(f"- Text extraction results: {runner.detdiagrams_folder.parent / 'text_extraction'}")
+                    if args.create_enhanced_pdf:
+                        print(f"- Enhanced PDFs: {runner.detdiagrams_folder.parent / 'enhanced_pdfs'}")
+                    print(f"- Summary: {runner.detdiagrams_folder / 'text_extraction_summary.json'}")
+                return 0 if success else 1
         
         if args.skip_training:
             print("Skipping training, using existing model...")

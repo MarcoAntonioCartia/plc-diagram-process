@@ -320,10 +320,23 @@ class DetectionPDFCreator(BasicPDFCreator):
             if not bbox or not text_content:
                 continue
 
+            # Text regions appear to be in a different coordinate system (roughly 2x scale)
+            # Apply additional scaling to match the detection coordinate system
+            text_scale_factor = 0.5  # Adjust this if needed based on coordinate analysis
+            
             ox, oy = self._offset
             x1, y1, x2, y2 = bbox
+            
+            # Apply text-specific scaling first
+            x1 *= text_scale_factor
+            y1 *= text_scale_factor
+            x2 *= text_scale_factor
+            y2 *= text_scale_factor
+            
+            # Then apply offset and final scaling
             x1 += ox; y1 += oy; x2 += ox; y2 += oy
             rect = fitz.Rect(x1 * scale[0], y1 * scale[1], x2 * scale[0], y2 * scale[1])
+            
             # Draw the bounding box for the text region with a dashed line
             page.draw_rect(rect, color=self.colors['text_region_box'], width=self.line_width, dashes="[2 2] 0")
 
