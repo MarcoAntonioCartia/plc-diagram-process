@@ -438,15 +438,15 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
         return text_summary
     
     def _run_enhanced_pdf_creation(self):
-        """Create enhanced PDFs with detection boxes and text extraction using PNG-first approach"""
+        """Create enhanced PDFs with detection boxes and text extraction using original PDFs"""
         
         if not self.create_enhanced_pdf:
             return
         
-        print(f"Creating enhanced PDFs using PNG-first approach (version: {self.enhanced_pdf_version})...")
+        print(f"Creating enhanced PDFs from original PDFs (version: {self.enhanced_pdf_version})...")
         
-        # Initialize your new PDF creator
-        pdf_creator = DetectionPDFCreator(font_size=10)
+        # Initialize PDF creator
+        pdf_creator = DetectionPDFCreator(font_size=10, min_conf=self.pdf_confidence_threshold)
         
         # Get effective detection folder (custom or default)
         detection_folder = self._get_effective_detection_folder()
@@ -458,53 +458,42 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
         
         pdf_start = time.time()
         
-        # Find PNG images created during detection pipeline
-        png_files = list(detection_folder.glob("*_page_*_detected.png"))
+        # Find detection JSON files
+        detection_files = list(detection_folder.glob("*_detections.json"))
         
-        if not png_files:
-            print("Warning: No PNG files found from detection pipeline")
-            return {"processed_files": 0, "error": "No PNG files found"}
+        if not detection_files:
+            print("Warning: No detection files found")
+            return {"processed_files": 0, "error": "No detection files found"}
         
-        print(f"Found {len(png_files)} PNG files to process")
-        
-        # Group PNG files by PDF name
-        pdf_groups = {}
-        for png_file in png_files:
-            # Extract PDF name from PNG filename: {pdf_name}_page_{page_num}_detected.png
-            pdf_name = png_file.name.split('_page_')[0]
-            if pdf_name not in pdf_groups:
-                pdf_groups[pdf_name] = []
-            pdf_groups[pdf_name].append(png_file)
+        print(f"Found {len(detection_files)} detection files to process")
         
         processed_count = 0
         enhancement_results = []
         
-        # Process each PDF
-        for pdf_name, png_list in pdf_groups.items():
+        # Process each detection file
+        for detection_file in detection_files:
+            pdf_name = detection_file.name.replace("_detections.json", "")
             print(f"Processing {pdf_name}...")
             
-            # Find corresponding JSON files
-            detection_file = detection_folder / f"{pdf_name}_detections.json"
+            # Find corresponding files
+            original_pdf = self.diagrams_folder / f"{pdf_name}.pdf"
             text_file = text_extraction_folder / f"{pdf_name}_text_extraction.json"
             
-            if not detection_file.exists():
-                print(f"  Warning: Detection file not found: {detection_file}")
+            if not original_pdf.exists():
+                print(f"  Warning: Original PDF not found: {original_pdf}")
                 continue
             
             if not text_file.exists():
                 print(f"  Warning: Text file not found: {text_file}")
                 continue
             
-            # Use the first PNG (typically one per PDF)
-            image_file = png_list[0]
-            
             # Create enhanced PDF
             output_file = enhanced_pdf_folder / f"{pdf_name}_enhanced.pdf"
             
             try:
-                # Use configured version (default 'short', can be changed to 'long' for troubleshooting)
-                result_pdf = pdf_creator.create_enhanced_pdf(
-                    image_file=image_file,
+                # Use original PDF instead of pre-annotated PNG
+                result_pdf = pdf_creator.create_enhanced_pdf_from_original(
+                    original_pdf=original_pdf,
                     detections_file=detection_file,
                     text_file=text_file,
                     output_file=output_file,
@@ -513,7 +502,7 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
                 
                 enhancement_results.append({
                     "pdf_name": pdf_name,
-                    "image_file": str(image_file),
+                    "original_pdf": str(original_pdf),
                     "detection_file": str(detection_file),
                     "text_file": str(text_file),
                     "enhanced_pdf": str(result_pdf),
@@ -538,17 +527,17 @@ class CompleteTextPipelineRunner(CompletePipelineRunner):
         # Store PDF enhancement results
         self.results["pdf_enhancement"] = {
             "enhancement_time": pdf_time,
-            "method": "png_first",
+            "method": "original_pdf",
             "version": self.enhanced_pdf_version,
             "processed_files": processed_count,
-            "total_files": len(pdf_groups),
-            "success_rate": (processed_count / len(pdf_groups) * 100) if pdf_groups else 0,
+            "total_files": len(detection_files),
+            "success_rate": (processed_count / len(detection_files) * 100) if detection_files else 0,
             "output_folder": str(enhanced_pdf_folder),
             "results": enhancement_results
         }
         
         print(f"Enhanced PDF creation completed in {pdf_time:.2f} seconds")
-        print(f"Created {processed_count}/{len(pdf_groups)} enhanced PDFs")
+        print(f"Created {processed_count}/{len(detection_files)} enhanced PDFs")
         print(f"Success rate: {self.results['pdf_enhancement']['success_rate']:.1f}%")
         print(f"Enhanced PDFs saved to: {enhanced_pdf_folder}")
         

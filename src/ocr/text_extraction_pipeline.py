@@ -505,22 +505,32 @@ class TextExtractionPipeline:
                                                 roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
                                                 roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
                                                 
-                                                # Get bounding box
+                                                # Get bounding box in page coordinates
                                                 min_x = float(np.min(roi_bbox[:, 0]))
                                                 min_y = float(np.min(roi_bbox[:, 1]))
                                                 max_x = float(np.max(roi_bbox[:, 0]))
                                                 max_y = float(np.max(roi_bbox[:, 1]))
                                                 
+                                                # Transform to global coordinates using associated symbol's snippet position
+                                                global_bbox = self._transform_to_global_coordinates(
+                                                    (min_x, min_y, max_x, max_y), 
+                                                    detection, 
+                                                    original_width, 
+                                                    original_height,
+                                                    current_width,
+                                                    current_height
+                                                )
+                                                
                                                 text_region = TextRegion(
                                                     text=text.strip(),
                                                     confidence=float(confidence),
-                                                    bbox=(min_x, min_y, max_x, max_y),
+                                                    bbox=global_bbox,
                                                     source="ocr",
                                                     page=page_num + 1,
                                                     associated_symbol=detection
                                                 )
                                                 text_regions.append(text_region)
-                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f})")
+                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
                                             except Exception as e:
                                                 print(f"Warning: Error processing OCR text '{text}': {e}")
                                                 continue
@@ -551,22 +561,32 @@ class TextExtractionPipeline:
                                                 roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
                                                 roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
                                                 
-                                                # Get bounding box
+                                                # Get bounding box in page coordinates
                                                 min_x = float(np.min(roi_bbox[:, 0]))
                                                 min_y = float(np.min(roi_bbox[:, 1]))
                                                 max_x = float(np.max(roi_bbox[:, 0]))
                                                 max_y = float(np.max(roi_bbox[:, 1]))
                                                 
+                                                # Transform to global coordinates using associated symbol's snippet position
+                                                global_bbox = self._transform_to_global_coordinates(
+                                                    (min_x, min_y, max_x, max_y), 
+                                                    detection, 
+                                                    original_width, 
+                                                    original_height,
+                                                    current_width,
+                                                    current_height
+                                                )
+                                                
                                                 text_region = TextRegion(
                                                     text=text.strip(),
                                                     confidence=float(confidence),
-                                                    bbox=(min_x, min_y, max_x, max_y),
+                                                    bbox=global_bbox,
                                                     source="ocr",
                                                     page=page_num + 1,
                                                     associated_symbol=detection
                                                 )
                                                 text_regions.append(text_region)
-                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f})")
+                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
                                             except Exception as e:
                                                 print(f"Warning: Error processing OCR text '{text}': {e}")
                                                 continue
@@ -584,6 +604,69 @@ class TextExtractionPipeline:
             print(f"Warning: OCR extraction failed: {e}")
         
         return text_regions
+    
+    def _transform_to_global_coordinates(self, page_bbox: Tuple[float, float, float, float], 
+                                       detection: Dict, original_width: float, original_height: float,
+                                       current_width: float, current_height: float) -> Tuple[float, float, float, float]:
+        """Transform page-level coordinates to global coordinates using snippet position"""
+        try:
+            # Get snippet position from associated symbol
+            snippet_pos = detection.get("snippet_position", {})
+            if not snippet_pos:
+                # Fallback: try to get from bbox_snippet vs bbox_global comparison
+                bbox_snippet = detection.get("bbox_snippet", {})
+                bbox_global = detection.get("bbox_global", {})
+                
+                if bbox_snippet and bbox_global:
+                    # Calculate offset from snippet to global coordinates
+                    if isinstance(bbox_snippet, dict) and isinstance(bbox_global, dict):
+                        offset_x = bbox_global.get("x1", 0) - bbox_snippet.get("x1", 0)
+                        offset_y = bbox_global.get("y1", 0) - bbox_snippet.get("y1", 0)
+                    else:
+                        # Handle list format
+                        offset_x = bbox_global[0] - bbox_snippet[0] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+                        offset_y = bbox_global[1] - bbox_snippet[1] if len(bbox_global) >= 4 and len(bbox_snippet) >= 4 else 0
+                else:
+                    # No transformation possible, return original coordinates
+                    print(f"Warning: Cannot transform coordinates - no snippet position or bbox info available")
+                    return page_bbox
+            else:
+                # Use snippet position to calculate offset
+                row = snippet_pos.get("row", 0)
+                col = snippet_pos.get("col", 0)
+                
+                # Estimate snippet size (this should match the detection pipeline's snippet size)
+                # Default snippet size is typically 1500x1200 with 500 overlap
+                snippet_width = 1500
+                snippet_height = 1200
+                overlap = 500
+                
+                # Calculate offset based on grid position
+                offset_x = col * (snippet_width - overlap)
+                offset_y = row * (snippet_height - overlap)
+            
+            # Apply transformation
+            x1, y1, x2, y2 = page_bbox
+            
+            # Scale from current page size back to original size if needed
+            if current_width != original_width or current_height != original_height:
+                scale_x = original_width / current_width
+                scale_y = original_height / current_height
+                x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
+            
+            # Add snippet offset to get global coordinates
+            global_x1 = x1 + offset_x
+            global_y1 = y1 + offset_y
+            global_x2 = x2 + offset_x
+            global_y2 = y2 + offset_y
+            
+            print(f"Coordinate transform: page({x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}) + offset({offset_x},{offset_y}) = global({global_x1:.1f},{global_y1:.1f},{global_x2:.1f},{global_y2:.1f})")
+            
+            return (global_x1, global_y1, global_x2, global_y2)
+            
+        except Exception as e:
+            print(f"Warning: Error transforming coordinates: {e}")
+            return page_bbox
     
     def _combine_and_associate_texts(self, pdf_texts: List[TextRegion], 
                                    ocr_texts: List[TextRegion], 
