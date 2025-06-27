@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "data": {},
+  "error": "Stage enhancement failed: Enhancement modules not available: No module named 'fitz'",
+  "duration": 0.05066061019897461,
+  "timestamp": "2025-06-27T18:16:51.669025"
+}

@@ -1,49 +1,74 @@
 {
   "success": false,
-  "stages_run": 2,
-  "stages_skipped": 0,
-  "total_duration": 0.578104,
-  "start_time": "2025-06-27T17:36:38.717744",
-  "end_time": "2025-06-27T17:36:39.295848",
+  "stages_run": 4,
+  "stages_skipped": 1,
+  "total_duration": 0.100058,
+  "start_time": "2025-06-27T18:16:51.569727",
+  "end_time": "2025-06-27T18:16:51.669785",
   "results": {
     "preparation": {
+      "skipped": true,
+      "reason": "already_completed"
+    },
+    "training": {
       "success": true,
       "data": {
         "status": "success",
-        "directories_created": [
-          "D:\\MarMe\\github\\0.3\\plc-data\\processed\\csv_output"
-        ],
-        "input_validation": {
-          "pdfs_found": 56,
-          "config_valid": true,
-          "errors": []
+        "environment": "yolo_env",
+        "model_validation": {
+          "models_found": [
+            "yolo11n.pt",
+            "yolo11s.pt",
+            "yolo11m.pt",
+            "yolo11l.pt"
+          ],
+          "models_missing": [],
+          "validation_errors": [],
+          "default_model": "yolo11n.pt"
         },
-        "environment_health": {
-          "python_version": "3.11",
-          "dependencies_available": {
-            "json": true,
-            "pathlib": true,
-            "os": true,
-            "sys": true,
-            "fitz": true,
-            "cv2": true,
-            "numpy": true,
-            "PIL": true
-          },
-          "warnings": []
+        "training_config": {
+          "epochs": 100,
+          "batch_size": 16,
+          "learning_rate": 0.001,
+          "image_size": 640,
+          "device": "cuda",
+          "model_name": "yolo11m.pt"
         },
-        "config_validated": true
+        "ready_for_training": true,
+        "multi_env_mode": true
       },
       "error": null,
-      "duration": 0.5668141841888428,
-      "timestamp": "2025-06-27T17:36:39.284558"
+      "duration": 0.023653507232666016,
+      "timestamp": "2025-06-27T18:16:51.594903"
     },
-    "training": {
+    "detection": {
+      "success": true,
+      "data": {
+        "status": "error",
+        "error": "cannot import name 'MultiEnvManager' from 'src.utils.multi_env_manager' (D:\\MarMe\\github\\0.4\\plc-diagram-processor\\src\\utils\\multi_env_manager.py)",
+        "environment": "multi"
+      },
+      "error": null,
+      "duration": 0.008594751358032227,
+      "timestamp": "2025-06-27T18:16:51.605106"
+    },
+    "ocr": {
+      "success": true,
+      "data": {
+        "status": "error",
+        "error": "cannot import name 'MultiEnvManager' from 'src.utils.multi_env_manager' (D:\\MarMe\\github\\0.4\\plc-diagram-processor\\src\\utils\\multi_env_manager.py)",
+        "environment": "multi"
+      },
+      "error": null,
+      "duration": 0.009429693222045898,
+      "timestamp": "2025-06-27T18:16:51.616311"
+    },
+    "enhancement": {
       "success": false,
       "data": {},
-      "error": "Stage training failed: PyTorch/Ultralytics not available: No module named 'torch'",
-      "duration": 0.009288787841796875,
-      "timestamp": "2025-06-27T17:36:39.294847"
+      "error": "Stage enhancement failed: Enhancement modules not available: No module named 'fitz'",
+      "duration": 0.05066061019897461,
+      "timestamp": "2025-06-27T18:16:51.669025"
     }
   },
   "ci_mode": false

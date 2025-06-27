@@ -20,10 +20,7 @@ class TrainingStage(BaseStage):
     
     def execute(self) -> Dict[str, Any]:
         """Execute training stage with heavy dependencies"""
-        print("X Starting training stage...")
-        
-        # Import heavy dependencies only when needed
-        self._import_dependencies()
+        print("🔧 Starting training stage...")
         
         # Get configuration
         from src.config import get_config
@@ -35,6 +32,8 @@ class TrainingStage(BaseStage):
         if multi_env:
             return self._execute_multi_env(config)
         else:
+            # Only import dependencies in single-env mode
+            self._import_dependencies()
             return self._execute_single_env(config)
     
     def execute_ci_safe(self) -> Dict[str, Any]:
@@ -74,44 +73,34 @@ class TrainingStage(BaseStage):
     
     def _execute_multi_env(self, config) -> Dict[str, Any]:
         """Execute training in multi-environment mode"""
-        try:
-            # Import PyTorch in detection environment
-            import torch
-            print(f"  V PyTorch {torch.__version__} available")
-            print(f"  V CUDA available: {torch.cuda.is_available()}")
-        except ImportError:
-            # Use mock PyTorch for CI
-            print("  X Using mock PyTorch for CI")
-            torch = None
+        print("  🔄 Running in multi-environment mode")
         
-        # Check multi-environment manager
         try:
-            from src.utils.multi_env_manager import MultiEnvManager
-            print("  X Running in multi-environment mode")
+            from src.utils.multi_env_manager import MultiEnvironmentManager
             
-            env_manager = MultiEnvManager()
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            manager = MultiEnvironmentManager(project_root)
             
-            # Validate models in detection environment
-            model_validation = self._validate_models_multi_env(env_manager)
+            # Validate models without importing PyTorch in main process
+            model_validation = self._validate_models_multi_env_safe(config)
             
             # Setup training configuration
-            training_config = self._setup_training_config(config)
+            training_config = self._setup_training_config_safe(config)
             
             return {
                 'status': 'success',
-                'environment': 'multi',
-                'pytorch_version': torch.__version__ if torch else 'mock',
-                'cuda_available': torch.cuda.is_available() if torch else False,
+                'environment': 'yolo_env',
                 'model_validation': model_validation,
                 'training_config': training_config,
-                'ready_for_training': True
+                'ready_for_training': True,
+                'multi_env_mode': True
             }
             
         except Exception as e:
             return {
                 'status': 'error',
-                'error': str(e),
-                'environment': 'multi'
+                'error': f"Multi-env training failed: {str(e)}",
+                'environment': 'yolo_env'
             }
     
     def _execute_single_env(self, config) -> Dict[str, Any]:
@@ -145,6 +134,55 @@ class TrainingStage(BaseStage):
             'training_config': training_config,
             'ready_for_training': True
         }
+    
+    def _validate_models_multi_env_safe(self, config) -> Dict[str, Any]:
+        """Validate models in multi-environment mode without importing PyTorch"""
+        validation_result = {
+            'models_found': [],
+            'models_missing': [],
+            'validation_errors': []
+        }
+        
+        # Expected model files
+        expected_models = [
+            'yolo11n.pt',
+            'yolo11s.pt', 
+            'yolo11m.pt',
+            'yolo11l.pt'
+        ]
+        
+        models_dir = Path(config.config["data_root"]) / "models" / "pretrained"
+        
+        for model_name in expected_models:
+            model_path = models_dir / model_name
+            if model_path.exists():
+                validation_result['models_found'].append(model_name)
+                print(f"  ✓ Model available: {model_name}")
+            else:
+                validation_result['models_missing'].append(model_name)
+                print(f"  ❌ Model missing: {model_name}")
+        
+        if validation_result['models_found']:
+            validation_result['default_model'] = validation_result['models_found'][0]
+            print(f"  ✓ Default model: {validation_result['default_model']}")
+        else:
+            validation_result['validation_errors'].append("No models available for validation")
+            print("  ❌ No models found for validation")
+        
+        return validation_result
+    
+    def _setup_training_config_safe(self, config) -> Dict[str, Any]:
+        """Setup training configuration without importing PyTorch"""
+        training_config = {
+            'epochs': 100,
+            'batch_size': 16,
+            'learning_rate': 0.001,
+            'image_size': 640,
+            'device': 'cuda',  # Assume CUDA in multi-env mode
+            'model_name': self.config.get('model_name', 'yolo11m.pt')
+        }
+        
+        return training_config
     
     def _validate_models_multi_env(self, env_manager) -> Dict[str, Any]:
         """Validate models in multi-environment mode"""

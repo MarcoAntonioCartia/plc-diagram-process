@@ -1,7 +1,31 @@
 {
-  "success": false,
-  "data": {},
-  "error": "Stage training failed: PyTorch/Ultralytics not available: No module named 'torch'",
-  "duration": 0.009288787841796875,
-  "timestamp": "2025-06-27T17:36:39.294847"
+  "success": true,
+  "data": {
+    "status": "success",
+    "environment": "yolo_env",
+    "model_validation": {
+      "models_found": [
+        "yolo11n.pt",
+        "yolo11s.pt",
+        "yolo11m.pt",
+        "yolo11l.pt"
+      ],
+      "models_missing": [],
+      "validation_errors": [],
+      "default_model": "yolo11n.pt"
+    },
+    "training_config": {
+      "epochs": 100,
+      "batch_size": 16,
+      "learning_rate": 0.001,
+      "image_size": 640,
+      "device": "cuda",
+      "model_name": "yolo11m.pt"
+    },
+    "ready_for_training": true,
+    "multi_env_mode": true
+  },
+  "error": null,
+  "duration": 0.023653507232666016,
+  "timestamp": "2025-06-27T18:16:51.594903"
 }

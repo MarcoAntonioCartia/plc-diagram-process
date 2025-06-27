@@ -297,7 +297,7 @@ class MultiEnvironmentManager:
             return True
         else:
             # Show last few lines of pip output for debugging
-            tail = "\n".join(proc.stderr.decode().strip().split('\n')[-3:])
+            tail = "\n".join(proc.stderr.strip().split('\n')[-3:])
             print(f"[MultiEnv] X pip failed for {env_path.name}:\n{tail}")
             return False
 
@@ -428,7 +428,7 @@ if __name__ == "__main__":
     parser.add_argument("--pip-check", action="store_true", help="run a 'pip install --dry-run' resolution before creating envs")
     args = parser.parse_args()
 
-    mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
+    mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent.parent, dry_run=args.dry_run)
 
     if args.setup:
         if not mgr.setup(force_recreate=args.force_recreate, pip_check=args.pip_check):
