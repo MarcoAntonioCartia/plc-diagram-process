@@ -90,24 +90,33 @@ class EnhancementStage(BaseStage):
     def _import_dependencies(self):
         """Import enhancement dependencies"""
         try:
-            # Import CSV formatter
+            # Import CSV formatter (should always work)
             from src.output.csv_formatter import CSVFormatter
             from src.output.area_grouper import AreaGrouper
             self._csv_formatter = CSVFormatter
             self._area_grouper = AreaGrouper
             
-            # Import PDF enhancement modules
-            from src.utils.enhanced_pdf_creator import EnhancedPDFCreator
-            self._pdf_creator = EnhancedPDFCreator
+            # Try to import PDF enhancement modules
+            try:
+                from src.utils.enhanced_pdf_creator import EnhancedPDFCreator
+                self._pdf_creator = EnhancedPDFCreator
+                self._pdf_available = True
+                print("  ✓ Enhancement modules available (including PDF)")
+            except ImportError as pdf_error:
+                # PDF creation not available, but CSV should still work
+                self._pdf_creator = MockPDFCreator
+                self._pdf_available = False
+                print(f"  ⚠️  PDF enhancement not available: {pdf_error}")
+                print("  ✓ CSV output will still be created")
             
-            print("  V Enhancement modules available")
         except ImportError as e:
             if self.is_ci:
                 # In CI, use mock
                 self._csv_formatter = MockCSVFormatter
                 self._area_grouper = MockAreaGrouper
                 self._pdf_creator = MockPDFCreator
-                print("  X Using mock enhancement modules for CI")
+                self._pdf_available = False
+                print("  🔧 Using mock enhancement modules for CI")
             else:
                 raise ImportError(f"Enhancement modules not available: {e}")
     

@@ -1,74 +1,30 @@
 {
-  "success": false,
-  "stages_run": 4,
-  "stages_skipped": 1,
-  "total_duration": 0.100058,
-  "start_time": "2025-06-27T18:16:51.569727",
-  "end_time": "2025-06-27T18:16:51.669785",
+  "success": true,
+  "stages_run": 0,
+  "stages_skipped": 5,
+  "total_duration": 0.010556,
+  "start_time": "2025-06-27T18:24:33.962401",
+  "end_time": "2025-06-27T18:24:33.972957",
   "results": {
     "preparation": {
       "skipped": true,
       "reason": "already_completed"
     },
     "training": {
-      "success": true,
-      "data": {
-        "status": "success",
-        "environment": "yolo_env",
-        "model_validation": {
-          "models_found": [
-            "yolo11n.pt",
-            "yolo11s.pt",
-            "yolo11m.pt",
-            "yolo11l.pt"
-          ],
-          "models_missing": [],
-          "validation_errors": [],
-          "default_model": "yolo11n.pt"
-        },
-        "training_config": {
-          "epochs": 100,
-          "batch_size": 16,
-          "learning_rate": 0.001,
-          "image_size": 640,
-          "device": "cuda",
-          "model_name": "yolo11m.pt"
-        },
-        "ready_for_training": true,
-        "multi_env_mode": true
-      },
-      "error": null,
-      "duration": 0.023653507232666016,
-      "timestamp": "2025-06-27T18:16:51.594903"
+      "skipped": true,
+      "reason": "already_completed"
     },
     "detection": {
-      "success": true,
-      "data": {
-        "status": "error",
-        "error": "cannot import name 'MultiEnvManager' from 'src.utils.multi_env_manager' (D:\\MarMe\\github\\0.4\\plc-diagram-processor\\src\\utils\\multi_env_manager.py)",
-        "environment": "multi"
-      },
-      "error": null,
-      "duration": 0.008594751358032227,
-      "timestamp": "2025-06-27T18:16:51.605106"
+      "skipped": true,
+      "reason": "already_completed"
     },
     "ocr": {
-      "success": true,
-      "data": {
-        "status": "error",
-        "error": "cannot import name 'MultiEnvManager' from 'src.utils.multi_env_manager' (D:\\MarMe\\github\\0.4\\plc-diagram-processor\\src\\utils\\multi_env_manager.py)",
-        "environment": "multi"
-      },
-      "error": null,
-      "duration": 0.009429693222045898,
-      "timestamp": "2025-06-27T18:16:51.616311"
+      "skipped": true,
+      "reason": "already_completed"
     },
     "enhancement": {
-      "success": false,
-      "data": {},
-      "error": "Stage enhancement failed: Enhancement modules not available: No module named 'fitz'",
-      "duration": 0.05066061019897461,
-      "timestamp": "2025-06-27T18:16:51.669025"
+      "skipped": true,
+      "reason": "already_completed"
     }
   },
   "ci_mode": false

@@ -1,7 +1,11 @@
 {
-  "success": false,
-  "data": {},
-  "error": "Stage enhancement failed: Enhancement modules not available: No module named 'fitz'",
-  "duration": 0.05066061019897461,
-  "timestamp": "2025-06-27T18:16:51.669025"
+  "success": true,
+  "data": {
+    "status": "error",
+    "error": "No text extraction files found in: D:\\MarMe\\github\\0.3\\plc-data\\processed\\text_extraction",
+    "environment": "core"
+  },
+  "error": null,
+  "duration": 0.5009975433349609,
+  "timestamp": "2025-06-27T18:23:08.401723"
 }
