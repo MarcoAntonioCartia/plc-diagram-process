@@ -52,9 +52,10 @@ class DetectionStage(BaseStage):
         print("  X Running in multi-environment mode")
         
         try:
-            from src.utils.multi_env_manager import MultiEnvManager
+            from src.utils.multi_env_manager import MultiEnvironmentManager
             
-            env_manager = MultiEnvManager()
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            env_manager = MultiEnvironmentManager(project_root)
             
             # Get PDF files to process
             data_root = Path(config.config["data_root"])
@@ -86,19 +87,28 @@ class DetectionStage(BaseStage):
                     
                     if result.get('status') == 'success':
                         detection_data = result.get('results', {})
+                        # Handle case where results might be a string instead of dict
+                        if isinstance(detection_data, str):
+                            # Parse the string result or use a default
+                            total_detections = 0
+                            print(f"    V Detection completed: {detection_data}")
+                        else:
+                            total_detections = detection_data.get('total_detections', 0) if isinstance(detection_data, dict) else 0
+                            print(f"    V Detected {total_detections} objects")
+                        
                         results.append({
                             'pdf_file': pdf_file.name,
                             'success': True,
-                            'detections': detection_data.get('total_detections', 0)
+                            'detections': total_detections
                         })
-                        print(f"    V Detected {detection_data.get('total_detections', 0)} objects")
                     else:
+                        error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
                         results.append({
                             'pdf_file': pdf_file.name,
                             'success': False,
-                            'error': result.get('error', 'Unknown error')
+                            'error': error_msg
                         })
-                        print(f"    X Detection failed: {result.get('error', 'Unknown error')}")
+                        print(f"    X Detection failed: {error_msg}")
                         
                 except Exception as e:
                     results.append({

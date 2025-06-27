@@ -1,30 +1,17 @@
 {
-  "success": true,
-  "stages_run": 0,
-  "stages_skipped": 5,
-  "total_duration": 0.010556,
-  "start_time": "2025-06-27T18:24:33.962401",
-  "end_time": "2025-06-27T18:24:33.972957",
+  "success": false,
+  "stages_run": 1,
+  "stages_skipped": 0,
+  "total_duration": 0.001104,
+  "start_time": "2025-06-27T18:37:10.419387",
+  "end_time": "2025-06-27T18:37:10.420491",
   "results": {
-    "preparation": {
-      "skipped": true,
-      "reason": "already_completed"
-    },
-    "training": {
-      "skipped": true,
-      "reason": "already_completed"
-    },
     "detection": {
-      "skipped": true,
-      "reason": "already_completed"
-    },
-    "ocr": {
-      "skipped": true,
-      "reason": "already_completed"
-    },
-    "enhancement": {
-      "skipped": true,
-      "reason": "already_completed"
+      "success": false,
+      "data": {},
+      "error": "Stage dependencies not met",
+      "duration": 0.00022339820861816406,
+      "timestamp": "2025-06-27T18:37:10.420385"
     }
   },
   "ci_mode": false

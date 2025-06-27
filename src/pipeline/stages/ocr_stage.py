@@ -52,9 +52,10 @@ class OcrStage(BaseStage):
         print("  X Running in multi-environment mode")
         
         try:
-            from src.utils.multi_env_manager import MultiEnvManager
+            from src.utils.multi_env_manager import MultiEnvironmentManager
             
-            env_manager = MultiEnvManager()
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            env_manager = MultiEnvironmentManager(project_root)
             
             # Get detection files to process
             data_root = Path(config.config["data_root"])

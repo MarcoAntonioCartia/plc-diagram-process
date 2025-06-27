@@ -76,7 +76,9 @@ def load_model(model_path=None):
         # Create all common missing classes upfront
         missing_classes = [
             'C3k2', 'C3k', 'C3', 'C2PSA', 'C3TR', 'C3Ghost', 'RepC3', 
-            'GhostBottleneck', 'RepConv', 'C3x', 'C3k2x', 'C2f2'
+            'GhostBottleneck', 'RepConv', 'C3x', 'C3k2x', 'C2f2',
+            'PSABlock', 'Attention', 'PSA', 'C2fAttn', 'ImagePoolingAttn',
+            'EdgeResidual', 'C2fCIB', 'C2fPSA', 'SCDown'
         ]
         
         for class_name in missing_classes:
@@ -88,35 +90,21 @@ def load_model(model_path=None):
     except Exception as e:
         print(f"Warning: Could not create class placeholders: {e}")
     
+    # Always use weights_only=False for YOLO models since they contain custom classes
+    original_torch_load = torch.load
+    
+    def safe_torch_load(f, map_location=None, pickle_module=None, weights_only=None, **kwargs):
+        # Force weights_only=False for YOLO models to avoid security restrictions
+        return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, 
+                                 weights_only=False, **kwargs)
+    
     try:
-        # Check if we have PyTorch 2.6+ with safe_globals support
-        if hasattr(torch.serialization, 'safe_globals'):
-            # For PyTorch 2.6+, just try loading with weights_only=False directly
-            # since we have created placeholders for missing classes
-            try:
-                # Monkey patch torch.load to use weights_only=False
-                original_torch_load = torch.load
-                
-                def safe_torch_load(f, map_location=None, pickle_module=None, weights_only=None, **kwargs):
-                    return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, 
-                                             weights_only=False, **kwargs)
-                
-                torch.load = safe_torch_load
-                model = YOLO(str(model_path))
-                torch.load = original_torch_load  # Restore
-                
-                return model
-            except Exception:
-                # Restore in case of error
-                torch.load = original_torch_load
-                raise
-        else:
-            # For PyTorch < 2.6, load normally
-            model = YOLO(str(model_path))
-            
-            return model
-        
+        torch.load = safe_torch_load
+        model = YOLO(str(model_path))
+        return model
     except Exception as e:
+        # Restore original torch.load in case of error
+        torch.load = original_torch_load
         # If safe_globals fails, try with weights_only=False for trusted models
         print(f"Warning: Safe loading failed ({e}), falling back to weights_only=False")
         
