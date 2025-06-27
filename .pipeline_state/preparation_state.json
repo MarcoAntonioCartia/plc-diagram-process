@@ -9,7 +9,7 @@
       "errors": []
     },
     "environment_health": {
-      "python_version": "3.13",
+      "python_version": "3.11",
       "dependencies_available": {
         "json": true,
         "pathlib": true,
@@ -25,6 +25,6 @@
     "config_validated": true
   },
   "error": null,
-  "duration": 0.29647374153137207,
-  "timestamp": "2025-06-27T19:23:13.348589"
+  "duration": 0.2703409194946289,
+  "timestamp": "2025-06-27T20:05:43.485348"
 }

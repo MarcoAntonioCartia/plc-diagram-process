@@ -413,35 +413,36 @@ class TrainingStage(BaseStage):
     
     def _find_best_pretrained_model(self, config) -> Dict[str, Any]:
         """Find the best available pretrained model for training"""
-        # Default preference order: medium -> small -> nano -> large -> extra large
-        preferred_models = ['yolo11m.pt', 'yolo11s.pt', 'yolo11n.pt', 'yolo11l.pt', 'yolo11x.pt']
+        # Use the config's built-in model discovery (same as what works in debug)
+        available_models = config.discover_available_models('pretrained')
         
-        models_dir = config.get_model_path('', 'pretrained').parent
+        if not available_models:
+            return {'found': False, 'reason': 'No pretrained models available'}
         
-        if not models_dir.exists():
-            return {'found': False, 'reason': 'Pretrained models directory does not exist'}
+        # Prefer YOLO10 models for better compatibility, then YOLO11
+        preferred_models = [
+            'yolo10m.pt', 'yolo10s.pt', 'yolo10n.pt', 'yolo10l.pt', 'yolo10x.pt',
+            'yolo11m.pt', 'yolo11s.pt', 'yolo11n.pt', 'yolo11l.pt', 'yolo11x.pt'
+        ]
         
         # Check for preferred models in order
         for model_name in preferred_models:
-            model_path = models_dir / model_name
-            if model_path.exists():
+            if model_name in available_models:
+                model_path = config.get_model_path(model_name, 'pretrained')
                 return {
                     'found': True,
                     'model_name': model_name,
                     'model_path': str(model_path)
                 }
         
-        # Check if any pretrained models exist
-        available_models = list(models_dir.glob("*.pt"))
-        if available_models:
-            model = available_models[0]
-            return {
-                'found': True,
-                'model_name': model.name,
-                'model_path': str(model)
-            }
-        
-        return {'found': False, 'reason': 'No pretrained models available'}
+        # Use first available model if none of the preferred ones are found
+        model_name = available_models[0]
+        model_path = config.get_model_path(model_name, 'pretrained')
+        return {
+            'found': True,
+            'model_name': model_name,
+            'model_path': str(model_path)
+        }
     
     def _validate_dataset_structure(self, config) -> Dict[str, Any]:
         """Validate dataset structure (same logic as yolo11_train.py)"""
