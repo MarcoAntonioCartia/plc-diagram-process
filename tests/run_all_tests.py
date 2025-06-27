@@ -26,14 +26,14 @@ def run_test(test_file: Path, description: str) -> bool:
             print("STDERR:", result.stderr)
         
         if result.returncode == 0:
-            print(f"\n✓ {description} - PASSED")
+            print(f"\nV {description} - PASSED")
             return True
         else:
-            print(f"\n✗ {description} - FAILED (exit code: {result.returncode})")
+            print(f"\nX {description} - FAILED (exit code: {result.returncode})")
             return False
             
     except Exception as e:
-        print(f"\n✗ {description} - ERROR: {e}")
+        print(f"\nX {description} - ERROR: {e}")
         return False
 
 def main():
@@ -62,7 +62,7 @@ def main():
             success = run_test(test_path, description)
             results.append((description, success))
         else:
-            print(f"\n✗ {description} - NOT FOUND: {test_file}")
+            print(f"\nX {description} - NOT FOUND: {test_file}")
             results.append((description, False))
     
     # Summary
@@ -80,10 +80,10 @@ def main():
     print(f"\nTotal: {passed}/{total} tests passed")
     
     if passed == total:
-        print("\n✓ All tests passed!")
+        print("\nV All tests passed!")
         return 0
     else:
-        print(f"\n✗ {total - passed} tests failed")
+        print(f"\nX {total - passed} tests failed")
         return 1
 
 if __name__ == "__main__":

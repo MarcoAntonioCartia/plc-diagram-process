@@ -102,6 +102,11 @@ class UnifiedPLCSetup:
             print("DRY RUN MODE - No actual changes will be made")
         print()
 
+        # Allow callers (main) to postpone dataset/model download until after
+        # split-environment creation.  When set to True the interactive prompt
+        # inside run_complete_setup() is skipped and has to be invoked later.
+        self.defer_downloads: bool = False
+
     def check_python_version(self) -> bool:
         """Check if Python version is compatible"""
         min_version = (3, 8)  # Minimum supported version
@@ -109,11 +114,11 @@ class UnifiedPLCSetup:
         current_version = sys.version_info[:2]
         
         if current_version < min_version or current_version > max_version:
-            print(f"✗ Python {min_version[0]}.{min_version[1]}–{max_version[1]} required, "
-                  f"but {current_version[0]}.{current_version[1]} found")
-            return False
+            print(f"X Python {min_version[0]}.{min_version[1]}–{max_version[1]} required, "
+                  f"found {current_version[0]}.{current_version[1]}")
+            sys.exit(1)
         
-        print(f"✓ Python {current_version[0]}.{current_version[1]} detected")
+        print(f"V Python {current_version[0]}.{current_version[1]} detected")
         return True
     
     def clean_existing_environment(self) -> bool:
@@ -125,9 +130,9 @@ class UnifiedPLCSetup:
             print(f"Removing existing virtual environment at: {self.venv_path}")
             try:
                 shutil.rmtree(self.venv_path)
-                print("✓ Virtual environment removed")
+                print("V Virtual environment removed")
             except Exception as e:
-                print(f"✗ Failed to remove virtual environment: {e}")
+                print(f"X Failed to remove virtual environment: {e}")
                 return False
         
         # Clean pip cache
@@ -135,9 +140,9 @@ class UnifiedPLCSetup:
         try:
             subprocess.run([sys.executable, "-m", "pip", "cache", "purge"], 
                         check=True, capture_output=True)
-            print("✓ Pip cache cleaned")
+            print("V Pip cache cleaned")
         except Exception as e:
-            print(f"⚠ Failed to clean pip cache: {e}")
+            print(f"X Failed to clean pip cache: {e}")
         
         return True
 
@@ -167,15 +172,15 @@ class UnifiedPLCSetup:
             
             if result.stdout:
                 print(f"  Output: {result.stdout.strip()}")
-            print(f"  ✓ Success: {description}")
+            print(f"  V Success: {description}")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"  ✗ ERROR: {e}")
+            print(f"  X ERROR: {e}")
             if e.stderr:
                 print(f"  Error details: {e.stderr.strip()}")
             return False
         except Exception as e:
-            print(f"  ✗ ERROR: {e}")
+            print(f"  X ERROR: {e}")
             return False
 
     def detect_system_capabilities(self) -> Dict:
@@ -193,12 +198,12 @@ class UnifiedPLCSetup:
                 print("Detecting GPU capabilities...")
                 gpu_info = self.gpu_detector.detect_gpu_capabilities()
                 capabilities["gpu_info"] = gpu_info
-                print("✓ GPU detection completed")
+                print("V GPU detection completed")
             except Exception as e:
-                print(f"⚠ GPU detection failed (non-critical): {e}")
+                print(f"X GPU detection failed (non-critical): {e}")
                 print("  Will use CPU-only PyTorch installation")
         else:
-            print("⚠ GPU detector not available, using CPU-only PyTorch")
+            print("X GPU detector not available, using CPU-only PyTorch")
         
         # Try build tools detection (non-blocking)
         if self.build_tools_installer:
@@ -206,12 +211,12 @@ class UnifiedPLCSetup:
                 print("Checking build tools status...")
                 build_tools_status = self.build_tools_installer.check_build_tools_status()
                 capabilities["build_tools_status"] = build_tools_status
-                print("✓ Build tools check completed")
+                print("V Build tools check completed")
             except Exception as e:
-                print(f"⚠ Build tools detection failed (non-critical): {e}")
+                print(f"X Build tools detection failed (non-critical): {e}")
                 print("  May encounter compilation issues with some packages")
         else:
-            print("⚠ Build tools installer not available")
+            print("X Build tools installer not available")
         
         return capabilities
 
@@ -1766,6 +1771,11 @@ echo "Python: {self.venv_python}"
         print("Unified PLC Diagram Processor Setup")
         print("=" * 60)
         
+        # Order is important: install *all* packages (including specialized ones)
+        # before we touch the dataset/model managers so that their imports
+        # (Ultralytics, YAML, etc.) are available.  In dry-run mode we simply
+        # skip the heavy specialized-package installation.
+
         steps = [
             ("Finding latest Python version", self.find_latest_python),
             ("Checking Python version", self.check_python_version),
@@ -1775,12 +1785,21 @@ echo "Python: {self.venv_python}"
             ("Setting up build environment", lambda: self.setup_build_environment(self.capabilities)),
             ("Creating virtual environment", self.create_virtual_environment),
             ("Upgrading pip tools", self.upgrade_pip_tools),
+
+            # --- core packages ---
             ("Installing PyTorch (Direct CUDA)", lambda: self.install_pytorch(self.capabilities)),
             ("Installing other packages", self.install_other_packages),
-            ("Setting up data directories", self.setup_data_directories),
-            ("Creating activation scripts", self.create_activation_scripts),
-            ("Installing specialized packages", lambda: self.install_specialized_packages(self.capabilities)),
+
+            # --- specialized OCR/detection extras (skip in dry-run) ---
+            ("Installing specialized packages", lambda: True if self.dry_run else self.install_specialized_packages(self.capabilities)),
             ("Finalize NumPy version", self.ensure_latest_numpy),
+
+            # --- data folders & downloads (require all libs above) ---
+            ("Setting up data directories", self.setup_data_directories),
+            ("Interactive data/model downloads", self.interactive_download_prompt),
+
+            # --- housekeeping ---
+            ("Creating activation scripts", self.create_activation_scripts),
             ("GPU sanity check", self.run_gpu_sanity_check),
             ("Verifying installation", self.verify_installation),
         ]
@@ -1845,6 +1864,128 @@ echo "Python: {self.venv_python}"
         
         return True
 
+    # --------------------------------------------------
+    # DATA / MODEL DOWNLOAD SUPPORT 
+    # --------------------------------------------------
+    def load_download_config(self) -> Dict:
+        """Load setup/config/download_config.yaml – fall back to sane defaults."""
+        cfg_file = self.project_root / "setup" / "config" / "download_config.yaml"
+        if not cfg_file.exists():
+            # Legacy-style defaults if the file has not been created yet
+            return {
+                "storage_backend": "network_drive",
+                "setup": {
+                    "prompt_for_downloads": True,
+                    "auto_download_dataset": False,
+                    "auto_download_models": False,
+                },
+            }
+        try:
+            with open(cfg_file, "r") as fh:
+                return yaml.safe_load(fh) or {}
+        except Exception as exc:
+            print(f"⚠ Could not read download_config.yaml: {exc}")
+            return {}
+
+    def interactive_download_prompt(self) -> bool:
+        """Ask the user whether to download datasets / models and delegate to the managers."""
+        # Early-exit when the caller explicitly postpones the download step – used
+        # by the --multi-env flow so we can perform the prompt after the split
+        # environments (detection_env / ocr_env) have been created.
+        if getattr(self, "defer_downloads", False):
+            return True
+
+        cfg = self.load_download_config()
+        # Honour non-interactive settings from the YAML
+        if not cfg.get("setup", {}).get("prompt_for_downloads", True):
+            return True
+
+        print("\n=== Data and Model Download Options ===")
+        print("1. Download datasets")
+        print("2. Download models")
+        print("3. Download BOTH datasets and models")
+        print("4. Skip downloads")
+
+        if self.dry_run:
+            print("DRY RUN: would invoke manage_datasets / manage_models here")
+            return True
+
+        while True:
+            choice = input("Select option (1-4): ").strip()
+            if choice not in {"1", "2", "3", "4"}:
+                print("Please enter 1-4"); continue
+            if choice == "4":
+                return True  # user chose to skip
+
+            venv_py   = str(self.venv_python)
+            setup_dir = self.project_root / "setup"
+            success   = True
+            try:
+                if choice in {"1", "3"}:  # DATASETS
+                    success &= subprocess.call(
+                        [venv_py, str(setup_dir / "manage_datasets.py"), "--interactive"]
+                    ) == 0
+                if choice in {"2", "3"}:  # MODELS
+                    success &= subprocess.call(
+                        [venv_py, str(setup_dir / "manage_models.py"), "--interactive"]
+                    ) == 0
+            except KeyboardInterrupt:
+                print("\nDownload step cancelled by user")
+                return False
+            return success
+
+    def _run_deferred_downloads_with_multi_env(self, multi_env_manager) -> bool:
+        """Run the deferred downloads using the appropriate multi-environments."""
+        cfg = self.load_download_config()
+        
+        # Honour non-interactive settings from the YAML
+        if not cfg.get("setup", {}).get("prompt_for_downloads", True):
+            return True
+
+        print("Data and Model Download Options (Multi-Environment Mode):")
+        print("1. Download datasets (using detection_env)")
+        print("2. Download models (using detection_env)")
+        print("3. Download BOTH datasets and models (using detection_env)")
+        print("4. Skip downloads")
+
+        if self.dry_run:
+            print("DRY RUN: would invoke dataset/model managers in detection_env")
+            return True
+
+        while True:
+            choice = input("Select option (1-4): ").strip()
+            if choice not in {"1", "2", "3", "4"}:
+                print("Please enter 1-4"); continue
+            if choice == "4":
+                return True  # user chose to skip
+
+            # Use detection_env for both datasets and models since they both need YOLO/Ultralytics
+            detection_python = str(multi_env_manager.detection.python)
+            setup_dir = self.project_root / "setup"
+            success = True
+            
+            try:
+                if choice in {"1", "3"}:  # DATASETS
+                    print("Running dataset manager in detection_env...")
+                    success &= subprocess.call([
+                        detection_python, str(setup_dir / "manage_datasets.py"), "--interactive"
+                    ]) == 0
+                    
+                if choice in {"2", "3"}:  # MODELS
+                    print("Running model manager in detection_env...")
+                    success &= subprocess.call([
+                        detection_python, str(setup_dir / "manage_models.py"), "--interactive"
+                    ]) == 0
+                    
+            except KeyboardInterrupt:
+                print("\nDownload step cancelled by user")
+                return False
+            except Exception as e:
+                print(f"Error running downloads in multi-env mode: {e}")
+                return False
+                
+            return success
+
 def main():
     """Main setup function"""
     parser = argparse.ArgumentParser(description='Unified PLC Diagram Processor Setup')
@@ -1882,6 +2023,12 @@ def main():
     setup = UnifiedPLCSetup(data_root=args.data_root, dry_run=args.dry_run, parallel_jobs=args.parallel_jobs)
     setup.skip_gpu_packages = args.multi_env
     
+    # CRITICAL FIX: Defer downloads when using multi-env mode
+    # This prevents dataset/model managers from being called before the split environments exist
+    if args.multi_env:
+        setup.defer_downloads = True
+        print("[Setup] Multi-env mode: deferring data/model downloads until after environment creation")
+    
     try:
         success = setup.run_complete_setup()
         
@@ -1910,6 +2057,10 @@ def main():
                 mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
                 if mgr.setup(pip_check=args.pip_check) and mgr.health_check():
                     print("\n✓ Multi-environment setup completed successfully!")
+                    
+                    # NOW run the deferred downloads using the appropriate environments
+                    print("\n=== Running Deferred Data/Model Downloads ===")
+                    success &= setup._run_deferred_downloads_with_multi_env(mgr)
                 else:
                     print("\n⚠ Multi-environment setup reported issues. See log above.")
             except Exception as exc:

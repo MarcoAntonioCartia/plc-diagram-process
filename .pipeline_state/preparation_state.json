@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "data": {
+    "status": "success",
+    "directories_created": [],
+    "input_validation": {
+      "pdfs_found": 56,
+      "config_valid": true,
+      "errors": []
+    },
+    "environment_health": {
+      "python_version": "3.11",
+      "dependencies_available": {
+        "json": true,
+        "pathlib": true,
+        "os": true,
+        "sys": true,
+        "fitz": true,
+        "cv2": true,
+        "numpy": true,
+        "PIL": true
+      },
+      "warnings": []
+    },
+    "config_validated": true
+  },
+  "error": null,
+  "duration": 0.2703409194946289,
+  "timestamp": "2025-06-27T20:05:43.485348"
+}

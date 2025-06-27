@@ -84,7 +84,7 @@ def main():
     # The main application script to run
     # Assuming launch.py is in the root and the target is in src/
     project_root = Path(__file__).parent
-    target_script_name = "run_complete_pipeline_with_text.py"
+    target_script_name = "run_pipeline.py"
     target_script_path = project_root / "src" / target_script_name
 
     if not target_script_path.exists():

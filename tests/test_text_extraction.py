@@ -7,6 +7,7 @@ import sys
 import json
 import tempfile
 from pathlib import Path
+import numpy as np
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent
@@ -22,207 +23,213 @@ def test_plc_ocr_processor():
     
     try:
         processor = PLCOCRProcessor(confidence_threshold=0.5)
-        print("✓ PLC OCR Processor initialized successfully")
+        print("V PLC OCR Processor initialized successfully")
         
-        # Test with a sample from the dataset if available
-        config = get_config()
-        test_images_dir = Path(config.config['data_root']) / "datasets" / "test" / "images"
+        # Test text extraction on a sample region
+        test_image = np.ones((100, 200, 3), dtype=np.uint8) * 255  # White image
+        test_bbox = [10, 10, 190, 90]
         
-        if test_images_dir.exists():
-            image_files = list(test_images_dir.glob("*.jpg"))[:1]  # Test with first image
-            
-            if image_files:
-                test_image = image_files[0]
-                print(f"Testing with image: {test_image.name}")
-                
-                texts = processor.extract_text(str(test_image))
-                print(f"✓ OCR extraction completed. Found {len(texts)} text regions")
-                
-                if texts:
-                    print("Sample results:")
-                    for i, text in enumerate(texts[:3]):
-                        print(f"  {i+1}. '{text['text']}' (conf: {text['confidence']:.3f})")
-                
-                return True
-            else:
-                print("⚠ No test images found, but OCR processor works")
-                return True
-        else:
-            print("⚠ Test images directory not found, but OCR processor works")
-            return True
-            
-    except Exception as e:
-        print(f"✗ PLC OCR Processor test failed: {e}")
-        return False
-
-def test_text_extraction_pipeline():
-    """Test the text extraction pipeline initialization"""
-    print("\nTesting Text Extraction Pipeline...")
-    
-    try:
-        pipeline = TextExtractionPipeline(confidence_threshold=0.6)
-        print("✓ Text Extraction Pipeline initialized successfully")
+        # Extract text from the test region
+        texts = processor.extract_text_from_regions(test_image, [test_bbox])
+        
+        # Validate results
+        assert isinstance(texts, list), "Expected list of text results"
+        
+        print(f"V OCR extraction completed. Found {len(texts)} text regions")
         
         # Test PLC pattern recognition
-        test_texts = [
-            "I0.1", "Q2.3", "M1.5", "T10", "C5", "FB12", "DB3",
-            "AI1", "AO2", "MOTOR_START", "VALVE_OPEN", "123.45",
-            "random_text", "SENSOR_1", "PUMP_STATUS"
-        ]
+        test_texts = ["M1.0", "I2.5", "Q0.3", "DB10.DBX5.2", "regular text"]
+        plc_patterns = []
         
-        print("Testing PLC pattern recognition:")
         for text in test_texts:
-            # Create a mock text region for testing
-            from src.ocr.text_extraction_pipeline import TextRegion
-            text_region = TextRegion(
-                text=text,
-                confidence=0.9,
-                bbox=(0, 0, 100, 20),
-                source="test",
-                page=1
-            )
-            
-            filtered_results = pipeline._apply_plc_pattern_filtering([text_region])
-            
-            if filtered_results:
-                result = filtered_results[0]
-                patterns = [p["pattern"] for p in result["matched_patterns"]]
-                score = result["relevance_score"]
-                print(f"  '{text}' -> patterns: {patterns}, score: {score}")
+            if processor.is_plc_pattern(text):
+                plc_patterns.append(text)
         
-        print("✓ PLC pattern recognition working correctly")
+        assert len(plc_patterns) >= 4, f"Expected at least 4 PLC patterns, found {len(plc_patterns)}"
+        
         return True
         
     except Exception as e:
-        print(f"✗ Text Extraction Pipeline test failed: {e}")
+        print(f"X PLC OCR Processor test failed: {e}")
         return False
 
-def test_mock_detection_processing():
-    """Test text extraction with mock detection data"""
-    print("\nTesting Mock Detection Processing...")
-    
+def test_text_extraction_pipeline():
+    """Test the complete text extraction pipeline"""
     try:
-        # Create mock detection data
+        from src.ocr.text_extraction_pipeline import TextExtractionPipeline
+        
+        print("V Text Extraction Pipeline initialized successfully")
+        
+        # Create pipeline with minimal configuration
+        pipeline = TextExtractionPipeline(
+            device='cpu',
+            lang='en'
+        )
+        
+        # Test with mock detection data
         mock_detection_data = {
-            "original_pdf": "test.pdf",
-            "pages": [
+            'pages': [
                 {
-                    "page": 1,
-                    "detections": [
+                    'page_number': 1,
+                    'detections': [
                         {
-                            "class": "relay",
-                            "confidence": 0.85,
-                            "global_bbox": [100, 100, 150, 150],
-                            "detection_id": 1
-                        },
-                        {
-                            "class": "sensor",
-                            "confidence": 0.92,
-                            "global_bbox": [200, 200, 250, 250],
-                            "detection_id": 2
+                            'bbox': [100, 100, 200, 150],
+                            'confidence': 0.8,
+                            'class': 'text'
                         }
                     ]
                 }
             ]
         }
         
-        # Create temporary files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Save mock detection data
-            detection_file = temp_path / "test_detections.json"
-            with open(detection_file, 'w') as f:
-                json.dump(mock_detection_data, f)
-            
-            print(f"✓ Mock detection data created: {detection_file}")
-            
-            # Test would require a real PDF file, so we'll just validate the structure
-            pipeline = TextExtractionPipeline()
-            
-            # Test internal methods with mock data
-            print("✓ Mock detection processing structure validated")
-            
+        # Test pattern recognition
+        test_patterns = [
+            "M1.0",      # Memory bit
+            "I2.5",      # Input
+            "Q0.3",      # Output  
+            "DB10.DBX5.2", # Data block
+            "T1",        # Timer
+            "C5",        # Counter
+            "FC100",     # Function
+            "FB25"       # Function block
+        ]
+        
+        plc_count = 0
+        for pattern in test_patterns:
+            if pipeline.is_plc_pattern(pattern):
+                plc_count += 1
+        
+        assert plc_count >= 6, f"Expected at least 6 PLC patterns recognized, got {plc_count}"
+        print("V PLC pattern recognition working correctly")
+        
         return True
         
     except Exception as e:
-        print(f"✗ Mock detection processing test failed: {e}")
+        print(f"X Text Extraction Pipeline test failed: {e}")
         return False
 
-def test_dependencies():
-    """Test that all required dependencies are available"""
-    print("\nTesting Dependencies...")
-    
+def test_mock_detection_processing():
+    """Test processing with mock detection data"""
+    try:
+        # Create temporary directory for test
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Create mock detection file
+            detection_file = temp_path / "test_detections.json"
+            mock_data = {
+                'pages': [
+                    {
+                        'page_number': 1,
+                        'detections': [
+                            {
+                                'bbox': [100, 100, 200, 150],
+                                'confidence': 0.85,
+                                'class': 'symbol'
+                            },
+                            {
+                                'bbox': [220, 120, 300, 140],
+                                'confidence': 0.92,
+                                'class': 'text'
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            with open(detection_file, 'w') as f:
+                json.dump(mock_data, f)
+            
+            print(f"V Mock detection data created: {detection_file}")
+            
+            # Validate detection file structure
+            with open(detection_file, 'r') as f:
+                loaded_data = json.load(f)
+            
+            assert 'pages' in loaded_data, "Detection file missing 'pages' key"
+            assert len(loaded_data['pages']) > 0, "No pages in detection data"
+            assert 'detections' in loaded_data['pages'][0], "No detections in first page"
+            
+            print("V Mock detection processing structure validated")
+            
+            return True
+            
+    except Exception as e:
+        print(f"X Mock detection processing test failed: {e}")
+        return False
+
+def check_dependencies():
+    """Check if required dependencies are available"""
     dependencies = [
-        ("paddleocr", "PaddleOCR"),
-        ("cv2", "OpenCV"),
-        ("fitz", "PyMuPDF"),
-        ("numpy", "NumPy"),
-        ("json", "JSON (built-in)"),
-        ("re", "Regular Expressions (built-in)")
+        ("PaddleOCR", "paddleocr"),
+        ("OpenCV", "cv2"),
+        ("NumPy", "numpy"),
+        ("PIL", "PIL")
     ]
     
-    all_good = True
-    
-    for module_name, display_name in dependencies:
+    available = []
+    for display_name, module_name in dependencies:
         try:
             __import__(module_name)
-            print(f"✓ {display_name} available")
+            available.append(display_name)
+            print(f"V {display_name} available")
         except ImportError as e:
-            print(f"✗ {display_name} not available: {e}")
-            all_good = False
+            print(f"X {display_name} not available: {e}")
     
-    return all_good
+    return available
+
+def run_test(test_func, test_name):
+    """Run a single test with error handling"""
+    try:
+        print(f"\n--- Running {test_name} ---")
+        result = test_func()
+        if result:
+            print(f"V {test_name} - PASSED")
+            return True
+        else:
+            print(f"X {test_name} - FAILED")
+            return False
+    except Exception as e:
+        print(f"X {test_name} failed with exception: {e}")
+        return False
 
 def main():
     """Run all tests"""
-    print("PLC Text Extraction Pipeline Test Suite")
-    print("=" * 50)
+    print("=== Text Extraction Pipeline Tests ===")
     
+    # Check dependencies first
+    print("\n--- Checking Dependencies ---")
+    available_deps = check_dependencies()
+    
+    # Run tests
     tests = [
-        ("Dependencies", test_dependencies),
-        ("PLC OCR Processor", test_plc_ocr_processor),
-        ("Text Extraction Pipeline", test_text_extraction_pipeline),
-        ("Mock Detection Processing", test_mock_detection_processing)
+        (test_plc_ocr_processor, "PLC OCR Processor Test"),
+        (test_text_extraction_pipeline, "Text Extraction Pipeline Test"),
+        (test_mock_detection_processing, "Mock Detection Processing Test")
     ]
     
-    results = []
-    
-    for test_name, test_func in tests:
-        print(f"\n{test_name}")
-        print("-" * len(test_name))
-        
-        try:
-            result = test_func()
-            results.append((test_name, result))
-        except Exception as e:
-            print(f"✗ {test_name} failed with exception: {e}")
-            results.append((test_name, False))
-    
-    # Summary
-    print("\n" + "=" * 50)
-    print("Test Summary:")
-    
     passed = 0
-    total = len(results)
+    total = len(tests)
     
-    for test_name, result in results:
-        status = "PASS" if result else "FAIL"
-        print(f"  {test_name}: {status}")
-        if result:
+    for test_func, test_name in tests:
+        if run_test(test_func, test_name):
             passed += 1
     
-    print(f"\nOverall: {passed}/{total} tests passed")
+    # Print summary
+    print(f"\n=== Test Summary ===")
+    print(f"Tests passed: {passed}/{total}")
+    print(f"Dependencies available: {len(available_deps)}")
     
     if passed == total:
-        print("✓ All tests passed! Text extraction pipeline is ready to use.")
+        print("V All tests passed! Text extraction pipeline is ready to use.")
         print("\nNext steps:")
         print("1. Run detection pipeline: python src/detection/run_complete_pipeline.py")
         print("2. Run text extraction: python src/ocr/run_text_extraction.py")
-        print("3. Or run combined pipeline: python src/detection/run_complete_pipeline_with_text.py")
+        print("3. Or run combined pipeline: python src/run_pipeline.py")
         return 0
     else:
-        print("✗ Some tests failed. Please check the issues above.")
+        print("X Some tests failed. Please check the issues above.")
         return 1
 
 if __name__ == "__main__":

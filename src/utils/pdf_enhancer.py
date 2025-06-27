@@ -288,11 +288,11 @@ class PDFEnhancer:
                 })
                 
                 processed += 1
-                print(f"✓ Enhanced: {enhanced_pdf.name}")
+                print(f"V Enhanced: {enhanced_pdf.name}")
                 
             except Exception as e:
                 error_msg = f"Error processing {detection_file.name}: {e}"
-                print(f"✗ {error_msg}")
+                print(f"X {error_msg}")
                 errors.append(error_msg)
                 continue
         

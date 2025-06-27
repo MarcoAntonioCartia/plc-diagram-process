@@ -152,9 +152,14 @@ _apply_gpu_path_fix()
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
-# Detect if user passed --skip-detection early so we can avoid importing
-# heavyweight YOLO/Ultralytics stack when it's not required.
-_SKIP_DETECTION = "--skip-detection" in sys.argv
+# ------------------------------------------------------------------
+# Runtime flag helpers – must come *before* any heavy imports.
+# ------------------------------------------------------------------
+
+import importlib.metadata as _ilm
+from src.utils.runtime_flags import skip_detection_requested, multi_env_active
+
+_SKIP_DETECTION = skip_detection_requested()
 
 # -------------------------------------------------------------
 # Lazy / conditional import to avoid ultralytics if detection is skipped
@@ -208,7 +213,8 @@ if _SKIP_DETECTION:
 
     CompletePipelineRunner = _DummyRunner  # type: ignore
 else:
-    from src.detection.run_complete_pipeline import CompletePipelineRunner
+    # Defer the import decision - we'll import the right runner later
+    CompletePipelineRunner = None  # type: ignore
 
 # ------------------------------------------------------------------
 # Stub out optional heavy dependencies that PaddleOCR -> PaddleX may try
@@ -234,8 +240,46 @@ from src.ocr.coordinate_calibration import CoordinateCalibrator
 from src.utils.detection_text_extraction_pdf_creator import DetectionPDFCreator
 from src.config import get_config
 
-class CompleteTextPipelineRunner(CompletePipelineRunner):
+def get_pipeline_runner_class():
+    """Get the appropriate pipeline runner class based on runtime conditions."""
+    global CompletePipelineRunner
+    
+    # If already resolved, return it
+    if CompletePipelineRunner is not None:
+        return CompletePipelineRunner
+    
+    # Check if we should skip detection entirely
+    if skip_detection_requested():
+        CompletePipelineRunner = _DummyRunner
+    # Check if we're in multi-env mode
+    elif multi_env_active():
+        from src.detection.lightweight_pipeline_runner import LightweightPipelineRunner
+        CompletePipelineRunner = LightweightPipelineRunner
+    else:
+        # Standard mode - import the heavy runner
+        from src.detection.run_complete_pipeline import CompletePipelineRunner as StandardRunner
+        CompletePipelineRunner = StandardRunner
+    
+    return CompletePipelineRunner
+
+class CompleteTextPipelineRunner:
     """Extended pipeline runner that includes text extraction"""
+    
+    def __new__(cls, *args, **kwargs):
+        """Dynamically create instance with the right base class."""
+        # Get the appropriate base class
+        base_class = get_pipeline_runner_class()
+        
+        # Create a new class that inherits from the right base
+        dynamic_class = type(
+            'CompleteTextPipelineRunner',
+            (base_class,),
+            dict(cls.__dict__)
+        )
+        
+        # Create and return instance
+        instance = object.__new__(dynamic_class)
+        return instance
     
     def __init__(self, epochs=10, confidence_threshold=0.25, snippet_size=(1500, 1200), 
                  overlap=500, model_name=None, device=None, ocr_confidence=0.7, ocr_lang="en",
@@ -905,6 +949,10 @@ def main():
                        help='Execution mode: single (default) = legacy in-process, multi = use isolated detection/ocr environments.')
     
     args = parser.parse_args()
+    
+    # Set multi-env flag EARLY before any class instantiation
+    if args.mode == 'multi':
+        os.environ["PLCDP_MULTI_ENV"] = "1"
     
     # Handle list-models command (delegate to parent)
     if args.list_models:

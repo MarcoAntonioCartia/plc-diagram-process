@@ -252,10 +252,12 @@ class ParallelPDFProcessor:
         for pdf_file, (metadata, error) in zip(pdf_files, results):
             if error:
                 errors.append(error)
-                print(f"❌ Error: {error}")
+                print(f"X Error: {error}")
+                failed_files.append(pdf_file.name)
             elif metadata:
                 all_metadata[metadata["original_pdf"]] = metadata
-                print(f"✅ Processed: {pdf_file.name}")
+                print(f"V Processed: {pdf_file.name}")
+                processed_files.append(pdf_file.name)
         
         # Save combined metadata
         if all_metadata:

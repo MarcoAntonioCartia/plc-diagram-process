@@ -57,7 +57,7 @@ class _VenvPaths:
 class MultiEnvironmentManager:
     """Create, validate and use split detection / OCR environments."""
 
-    DETECTION_ENV_NAME = "detection_env"
+    DETECTION_ENV_NAME = "yolo_env"  # Renamed from detection_env
     OCR_ENV_NAME = "ocr_env"
 
     # Default package stubs – will be finalised in __init__ once we know the
@@ -200,6 +200,9 @@ class MultiEnvironmentManager:
 
     def run_ocr_pipeline(self, input_dict: Dict[str, Any]) -> Dict[str, Any]:
         return self._run_worker("ocr_worker.py", input_dict, self.ocr)
+    
+    def run_training_pipeline(self, input_dict: Dict[str, Any]) -> Dict[str, Any]:
+        return self._run_worker("training_worker.py", input_dict, self.detection)
 
     # Convenience wrapper --------------------------------------------------
     def run_complete_pipeline(
@@ -207,6 +210,7 @@ class MultiEnvironmentManager:
         pdf_path: Path,
         output_dir: Path,
         *,
+        model_path: Optional[str] = None,
         detection_conf: float = 0.25,
         ocr_conf: float = 0.7,
         lang: str = "en",
@@ -219,6 +223,7 @@ class MultiEnvironmentManager:
         det_payload = {
             "pdf_path": str(pdf_path),
             "output_dir": str(output_dir / "detection"),
+            "model_path": model_path,
             "confidence_threshold": detection_conf,
         }
         det_out = self.run_detection_pipeline(det_payload)
@@ -291,13 +296,13 @@ class MultiEnvironmentManager:
 
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode == 0:
-            print(f"[MultiEnv] ✓ {env_path.name} ready")
+            print(f"[MultiEnv] V {env_path.name} ready")
             return True
-
-        # On failure show *last* 20 lines to aid debugging
-        tail = "\n".join(proc.stderr.strip().splitlines()[-20:])
-        print(f"[MultiEnv] ✗ pip failed for {env_path.name}:\n{tail}")
-        return False
+        else:
+            # Show last few lines of pip output for debugging
+            tail = "\n".join(proc.stderr.strip().split('\n')[-3:])
+            print(f"[MultiEnv] X pip failed for {env_path.name}:\n{tail}")
+            return False
 
     def _run_simple_python(self, python: Path, code: str) -> bool:
         try:
@@ -360,8 +365,12 @@ class MultiEnvironmentManager:
                         return {"status": "error", "error": err}
                     continue  # retry
                 except subprocess.CalledProcessError as exc:
+                    stderr_output = exc.stderr.strip() if exc.stderr else "No stderr"
+                    stdout_output = exc.stdout.strip() if exc.stdout else "No stdout"
                     err_msg = (
-                        f"Worker {worker_script} failed with code {exc.returncode}: {exc.stderr.strip()}"
+                        f"Worker {worker_script} failed with code {exc.returncode}\n"
+                        f"STDOUT: {stdout_output}\n"
+                        f"STDERR: {stderr_output}"
                     )
                     print(f"[MultiEnv] {err_msg} (attempt {attempt}/{MAX_RETRIES})")
                     if attempt > MAX_RETRIES:
@@ -422,11 +431,11 @@ if __name__ == "__main__":
     parser.add_argument("--pip-check", action="store_true", help="run a 'pip install --dry-run' resolution before creating envs")
     args = parser.parse_args()
 
-    mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
+    mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent.parent, dry_run=args.dry_run)
 
     if args.setup:
         if not mgr.setup(force_recreate=args.force_recreate, pip_check=args.pip_check):
             sys.exit(1)
     if args.health_check:
         if not mgr.health_check():
-            sys.exit(1) 
+            sys.exit(1)

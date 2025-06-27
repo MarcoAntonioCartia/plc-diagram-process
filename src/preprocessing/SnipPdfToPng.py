@@ -135,7 +135,7 @@ def snip_pdf_to_images(pdf_path, output_folder, snippet_size=(800, 600), overlap
                 snippet_path = output_folder / snippet_name
                 cv2.imwrite(str(snippet_path), snippet)
 
-                print(f"✅ Saved {snippet_name} — {s_w}x{s_h}")
+                print(f"V Saved {snippet_name} — {s_w}x{s_h}")
 
                 # Store metadata about this snippet
                 snippet_info = {
@@ -218,4 +218,4 @@ if __name__ == "__main__":
     # 🏃 Process all PDFs
     process_pdf_folder(input_dir, output_dir, snippet_size, overlap, poppler_path=poppler_dir)
 
-    print("✅ Snipping completed.")
+    print("V Snipping completed.")

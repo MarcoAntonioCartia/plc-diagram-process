@@ -19,7 +19,7 @@ def check_wsl():
             print("WSL is not available")
             return False
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"✗ WSL check failed: {e}")
+        print(f"X WSL check failed: {e}")
         return False
 
 def test_wsl_poppler():
@@ -75,7 +75,7 @@ wsl -e echo "Hello from WSL"
             print("Wrapper script concept works")
             print(f"  Output: {result.stdout.strip()}")
         else:
-            print("✗ Wrapper script failed")
+            print("X Wrapper script failed")
             print(f"  Error: {result.stderr}")
         
         # Clean up
@@ -99,19 +99,19 @@ def main():
         wrapper_ok = test_wrapper_functionality()
         
         print("\n=== Summary ===")
-        print(f"WSL Available: {'✓' if wsl_ok else '✗'}")
-        print(f"Poppler in WSL: {'✓' if poppler_ok else '✗'}")
-        print(f"Wrapper Scripts: {'✓' if wrapper_ok else '✗'}")
+        print(f"WSL Available: {'V' if wsl_ok else 'X'}")
+        print(f"Poppler in WSL: {'V' if poppler_ok else 'X'}")
+        print(f"Wrapper Scripts: {'V' if wrapper_ok else 'X'}")
         
         if all([wsl_ok, wrapper_ok]):
-            print("\nWSL poppler installation will work correctly!")
+            print("\nV All WSL Poppler components are working correctly!")
             if not poppler_ok:
                 print("  Note: You'll need to install poppler-utils in WSL during setup")
         else:
-            print("\nThere are issues that need to be resolved")
+            print("\nX Some WSL Poppler components need attention.")
     else:
-        print("\n✗ WSL is required for automatic poppler installation")
-        print("Please install WSL first: wsl --install")
+        print("\nX WSL is required for automatic poppler installation")
+        print("Please install WSL first: https://docs.microsoft.com/en-us/windows/wsl/install")
 
 if __name__ == "__main__":
     main()

@@ -139,8 +139,12 @@ def main():
         print("\n⚠ Some tests failed. Please check the issues above.")
         sys.exit(1)
     else:
-        print("\n✓ Network drive setup is working correctly!")
-        sys.exit(0)
+        print("\nV Network drive setup is working correctly!")
+        print(f"  - Network drives found: {len(network_drives)}")
+        print(f"  - OneDrive status: {'Available' if onedrive_available else 'Not found'}")
+        print(f"  - Network manager: {'Working' if manager_working else 'Failed'}")
+        
+        return True
 
 
 if __name__ == "__main__":
