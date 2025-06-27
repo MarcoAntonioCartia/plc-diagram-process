@@ -27,6 +27,9 @@ _lazy_targets: Dict[str, Tuple[str, str]] = {
     "OneDriveManager": ("onedrive_manager", "OneDriveManager"),
     "GPUManager": ("gpu_manager", "GPUManager"),
     "MultiEnvironmentManager": ("multi_env_manager", "MultiEnvironmentManager"),
+    # Runtime flag helpers (tiny, safe to import anywhere)
+    "multi_env_active": ("runtime_flags", "multi_env_active"),
+    "skip_detection_requested": ("runtime_flags", "skip_detection_requested"),
 }
 
 __all__ = list(_lazy_targets.keys())  # what 'from utils import *' exposes

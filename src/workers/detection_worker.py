@@ -41,16 +41,36 @@ def main() -> None:
         from src.detection.detect_pipeline import PLCDetectionPipeline  # type: ignore
 
         pipeline = PLCDetectionPipeline(
-            model_name=input_data.get("model_name"),
+            model_path=input_data.get("model_path"),
             confidence_threshold=input_data.get("confidence_threshold", 0.25),
         )
 
-        results = pipeline.process_pdf(
-            pdf_path=Path(input_data["pdf_path"]),
-            output_dir=Path(input_data.get("output_dir", "detection_out")),
-        )
+        # Check if we're processing a single PDF or a folder
+        pdf_path = input_data.get("pdf_path")
+        pdf_folder = input_data.get("pdf_folder")
+        
+        if pdf_path:
+            # Single PDF mode
+            results = pipeline.process_pdf_folder(
+                diagrams_folder=Path(pdf_path).parent,
+                output_folder=Path(input_data.get("output_dir", "detection_out")),
+                snippet_size=tuple(input_data.get("snippet_size", [1500, 1200])),
+                overlap=input_data.get("overlap", 500),
+                skip_pdf_conversion=False
+            )
+        elif pdf_folder:
+            # Folder mode
+            results = pipeline.process_pdf_folder(
+                diagrams_folder=Path(pdf_folder),
+                output_folder=Path(input_data.get("output_dir", "detection_out")),
+                snippet_size=tuple(input_data.get("snippet_size", [1500, 1200])),
+                overlap=input_data.get("overlap", 500),
+                skip_pdf_conversion=False
+            )
+        else:
+            raise ValueError("Either pdf_path or pdf_folder must be provided")
 
-        out = {"status": "success", "results": results}
+        out = {"status": "success", "results": str(results)}
 
     except Exception as exc:
         out = {"status": "error", "error": str(exc)}

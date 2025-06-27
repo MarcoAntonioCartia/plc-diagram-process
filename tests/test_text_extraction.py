@@ -219,7 +219,7 @@ def main():
         print("\nNext steps:")
         print("1. Run detection pipeline: python src/detection/run_complete_pipeline.py")
         print("2. Run text extraction: python src/ocr/run_text_extraction.py")
-        print("3. Or run combined pipeline: python src/detection/run_complete_pipeline_with_text.py")
+        print("3. Or run combined pipeline: python src/run_pipeline.py")
         return 0
     else:
         print("✗ Some tests failed. Please check the issues above.")
