@@ -1,0 +1,50 @@
+{
+  "success": false,
+  "stages_run": 2,
+  "stages_skipped": 0,
+  "total_duration": 0.578104,
+  "start_time": "2025-06-27T17:36:38.717744",
+  "end_time": "2025-06-27T17:36:39.295848",
+  "results": {
+    "preparation": {
+      "success": true,
+      "data": {
+        "status": "success",
+        "directories_created": [
+          "D:\\MarMe\\github\\0.3\\plc-data\\processed\\csv_output"
+        ],
+        "input_validation": {
+          "pdfs_found": 56,
+          "config_valid": true,
+          "errors": []
+        },
+        "environment_health": {
+          "python_version": "3.11",
+          "dependencies_available": {
+            "json": true,
+            "pathlib": true,
+            "os": true,
+            "sys": true,
+            "fitz": true,
+            "cv2": true,
+            "numpy": true,
+            "PIL": true
+          },
+          "warnings": []
+        },
+        "config_validated": true
+      },
+      "error": null,
+      "duration": 0.5668141841888428,
+      "timestamp": "2025-06-27T17:36:39.284558"
+    },
+    "training": {
+      "success": false,
+      "data": {},
+      "error": "Stage training failed: PyTorch/Ultralytics not available: No module named 'torch'",
+      "duration": 0.009288787841796875,
+      "timestamp": "2025-06-27T17:36:39.294847"
+    }
+  },
+  "ci_mode": false
+}

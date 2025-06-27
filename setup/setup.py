@@ -114,11 +114,11 @@ class UnifiedPLCSetup:
         current_version = sys.version_info[:2]
         
         if current_version < min_version or current_version > max_version:
-            print(f"✗ Python {min_version[0]}.{min_version[1]}–{max_version[1]} required, "
-                  f"but {current_version[0]}.{current_version[1]} found")
-            return False
+            print(f"X Python {min_version[0]}.{min_version[1]}–{max_version[1]} required, "
+                  f"found {current_version[0]}.{current_version[1]}")
+            sys.exit(1)
         
-        print(f"✓ Python {current_version[0]}.{current_version[1]} detected")
+        print(f"V Python {current_version[0]}.{current_version[1]} detected")
         return True
     
     def clean_existing_environment(self) -> bool:
@@ -130,9 +130,9 @@ class UnifiedPLCSetup:
             print(f"Removing existing virtual environment at: {self.venv_path}")
             try:
                 shutil.rmtree(self.venv_path)
-                print("✓ Virtual environment removed")
+                print("V Virtual environment removed")
             except Exception as e:
-                print(f"✗ Failed to remove virtual environment: {e}")
+                print(f"X Failed to remove virtual environment: {e}")
                 return False
         
         # Clean pip cache
@@ -140,9 +140,9 @@ class UnifiedPLCSetup:
         try:
             subprocess.run([sys.executable, "-m", "pip", "cache", "purge"], 
                         check=True, capture_output=True)
-            print("✓ Pip cache cleaned")
+            print("V Pip cache cleaned")
         except Exception as e:
-            print(f"⚠ Failed to clean pip cache: {e}")
+            print(f"X Failed to clean pip cache: {e}")
         
         return True
 
@@ -172,15 +172,15 @@ class UnifiedPLCSetup:
             
             if result.stdout:
                 print(f"  Output: {result.stdout.strip()}")
-            print(f"  ✓ Success: {description}")
+            print(f"  V Success: {description}")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"  ✗ ERROR: {e}")
+            print(f"  X ERROR: {e}")
             if e.stderr:
                 print(f"  Error details: {e.stderr.strip()}")
             return False
         except Exception as e:
-            print(f"  ✗ ERROR: {e}")
+            print(f"  X ERROR: {e}")
             return False
 
     def detect_system_capabilities(self) -> Dict:
@@ -198,12 +198,12 @@ class UnifiedPLCSetup:
                 print("Detecting GPU capabilities...")
                 gpu_info = self.gpu_detector.detect_gpu_capabilities()
                 capabilities["gpu_info"] = gpu_info
-                print("✓ GPU detection completed")
+                print("V GPU detection completed")
             except Exception as e:
-                print(f"⚠ GPU detection failed (non-critical): {e}")
+                print(f"X GPU detection failed (non-critical): {e}")
                 print("  Will use CPU-only PyTorch installation")
         else:
-            print("⚠ GPU detector not available, using CPU-only PyTorch")
+            print("X GPU detector not available, using CPU-only PyTorch")
         
         # Try build tools detection (non-blocking)
         if self.build_tools_installer:
@@ -211,12 +211,12 @@ class UnifiedPLCSetup:
                 print("Checking build tools status...")
                 build_tools_status = self.build_tools_installer.check_build_tools_status()
                 capabilities["build_tools_status"] = build_tools_status
-                print("✓ Build tools check completed")
+                print("V Build tools check completed")
             except Exception as e:
-                print(f"⚠ Build tools detection failed (non-critical): {e}")
+                print(f"X Build tools detection failed (non-critical): {e}")
                 print("  May encounter compilation issues with some packages")
         else:
-            print("⚠ Build tools installer not available")
+            print("X Build tools installer not available")
         
         return capabilities
 

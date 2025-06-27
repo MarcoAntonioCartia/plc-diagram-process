@@ -38,6 +38,13 @@ def main() -> None:
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
 
     try:
+        print(f"DEBUG: Starting detection worker with input: {input_data}")
+        
+        # Check if model file exists
+        model_path = input_data.get("model_path")
+        if model_path and not Path(model_path).exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        
         from src.detection.detect_pipeline import PLCDetectionPipeline  # type: ignore
 
         pipeline = PLCDetectionPipeline(
@@ -49,20 +56,30 @@ def main() -> None:
         pdf_path = input_data.get("pdf_path")
         pdf_folder = input_data.get("pdf_folder")
         
+        print(f"DEBUG: pdf_path={pdf_path}, pdf_folder={pdf_folder}")
+        
         if pdf_path:
             # Single PDF mode
+            pdf_parent = Path(pdf_path).parent
+            output_dir = Path(input_data.get("output_dir", "detection_out"))
+            print(f"DEBUG: Processing single PDF - diagrams_folder={pdf_parent}, output_folder={output_dir}")
+            
             results = pipeline.process_pdf_folder(
-                diagrams_folder=Path(pdf_path).parent,
-                output_folder=Path(input_data.get("output_dir", "detection_out")),
+                diagrams_folder=pdf_parent,
+                output_folder=output_dir,
                 snippet_size=tuple(input_data.get("snippet_size", [1500, 1200])),
                 overlap=input_data.get("overlap", 500),
                 skip_pdf_conversion=False
             )
         elif pdf_folder:
             # Folder mode
+            diagrams_folder = Path(pdf_folder)
+            output_dir = Path(input_data.get("output_dir", "detection_out"))
+            print(f"DEBUG: Processing folder - diagrams_folder={diagrams_folder}, output_folder={output_dir}")
+            
             results = pipeline.process_pdf_folder(
-                diagrams_folder=Path(pdf_folder),
-                output_folder=Path(input_data.get("output_dir", "detection_out")),
+                diagrams_folder=diagrams_folder,
+                output_folder=output_dir,
                 snippet_size=tuple(input_data.get("snippet_size", [1500, 1200])),
                 overlap=input_data.get("overlap", 500),
                 skip_pdf_conversion=False
@@ -70,9 +87,13 @@ def main() -> None:
         else:
             raise ValueError("Either pdf_path or pdf_folder must be provided")
 
+        print(f"DEBUG: Detection completed successfully, results: {results}")
         out = {"status": "success", "results": str(results)}
 
     except Exception as exc:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR: Detection worker failed: {error_details}")
         out = {"status": "error", "error": str(exc)}
         exit_code = 1
     else:

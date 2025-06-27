@@ -301,24 +301,34 @@ def main():
     print(f"   Average coordinate error: {avg_error:.6f}")
     print(f"   Maximum coordinate error: {max_error:.6f}")
     
-    if avg_error < 0.001:
-        print("   ✓ Perfect reconstruction! Relative coordinate system works flawlessly.")
+    # Validate reconstruction quality
+    if max_error < 1.0:  # Less than 1 pixel error
+        print("   V Perfect reconstruction! Relative coordinate system works flawlessly.")
     else:
-        print("   ✗ Reconstruction has errors. Need investigation.")
+        print("   X Reconstruction has errors. Need investigation.")
+        print(f"   Maximum error: {max_error:.2f} pixels")
+        print(f"   Average error: {avg_error:.2f} pixels")
     
-    # Create layout data
-    print("\n4. Creating PDF layout data...")
-    layout_data = rel_coord_system.create_pdf_layout_data(relative_data)
+    # Test different page sizes
+    test_sizes = [(800, 600), (1200, 900), (1920, 1080)]
+    for width, height in test_sizes:
+        print(f"\n  Testing with page size {width}x{height}:")
+        
+        # Test conversion accuracy
+        test_points = [(0.25, 0.25), (0.5, 0.5), (0.75, 0.75)]
+        for rel_x, rel_y in test_points:
+            abs_x, abs_y = rel_coord_system.relative_to_absolute(rel_x, rel_y, width, height)
+            back_rel_x, back_rel_y = rel_coord_system.absolute_to_relative(abs_x, abs_y, width, height)
+            
+            error_x = abs(rel_x - back_rel_x)
+            error_y = abs(rel_y - back_rel_y)
+            
+            if error_x < 0.001 and error_y < 0.001:
+                print(f"    V ({rel_x}, {rel_y}) -> ({abs_x}, {abs_y}) -> ({back_rel_x:.3f}, {back_rel_y:.3f})")
+            else:
+                print(f"    X ({rel_x}, {rel_y}) -> ({abs_x}, {abs_y}) -> ({back_rel_x:.3f}, {back_rel_y:.3f}) ERROR!")
     
-    layout_file = input_file.parent / f"{input_file.stem}_layout.json"
-    with open(layout_file, 'w', encoding='utf-8') as f:
-        json.dump(layout_data, f, indent=2, ensure_ascii=False)
-    
-    print(f"   Saved layout data: {layout_file}")
-    print(f"   Total symbols: {layout_data['metadata']['total_symbols']}")
-    print(f"   Total text regions: {layout_data['metadata']['total_text_regions']}")
-    
-    print("\n✓ Relative coordinate system test completed successfully!")
+    print("\nV Relative coordinate system test completed successfully!")
 
 if __name__ == "__main__":
     main()

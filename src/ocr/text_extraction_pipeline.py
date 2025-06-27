@@ -145,7 +145,8 @@ class TextExtractionPipeline:
             print(f"Trying PaddleOCR initialisation with device='{self.device}' …")
             self.ocr = PaddleOCR(lang=ocr_lang, device=self.device, use_textline_orientation=True)
             self.ocr_available = True
-            print(f"✓ PaddleOCR initialised successfully on {self.device.upper()}!")
+            print(f"V PaddleOCR initialised successfully on {self.device.upper()}!")
+            return True
         except Exception as e:
             print(f"Initialisation with device parameter failed: {e}")
 
@@ -156,7 +157,8 @@ class TextExtractionPipeline:
                 self.ocr = PaddleOCR(lang=ocr_lang, use_gpu=legacy_gpu_flag, use_textline_orientation=True)
                 self.ocr_available = True
                 dev_str = 'GPU' if legacy_gpu_flag else 'CPU'
-                print(f"✓ PaddleOCR initialised successfully with legacy flag on {dev_str}!")
+                print(f"V PaddleOCR initialised successfully with legacy flag on {dev_str}!")
+                return True
             except Exception as e2:
                 print(f"Legacy initialisation failed: {e2}")
 
@@ -165,7 +167,8 @@ class TextExtractionPipeline:
                     print("Trying explicit CPU initialisation to guarantee fallback …")
                     self.ocr = PaddleOCR(lang=ocr_lang, device='cpu', use_textline_orientation=True)
                     self.ocr_available = True
-                    print("✓ PaddleOCR initialised successfully on CPU!")
+                    print("V PaddleOCR initialised successfully on CPU!")
+                    return True
                 except Exception as e3:
                     print(f"CPU explicit initialisation failed: {e3}")
 
@@ -174,12 +177,14 @@ class TextExtractionPipeline:
                         print("Trying with minimal parameters …")
                         self.ocr = PaddleOCR(lang=ocr_lang)
                         self.ocr_available = True
-                        print("✓ PaddleOCR initialised successfully with minimal parameters (CPU)!")
+                        print("V PaddleOCR initialised successfully with minimal parameters (CPU)!")
+                        return True
                     except Exception as e4:
-                        print(f"❌ FATAL: All PaddleOCR initialization attempts failed: {e4}")
+                        print(f"X FATAL: All PaddleOCR initialization attempts failed: {e4}")
                         print("Setting OCR to None - text extraction will use PDF text only.")
                         self.ocr = None
                         self.ocr_available = False
+                        return False
         
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [

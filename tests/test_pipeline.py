@@ -147,6 +147,121 @@ def show_pipeline_overview():
     print("- {pdf_name}_statistics.json: Detection statistics")
     print("- {pdf_name}_page_{n}_detected.png: Individual page images")
 
+def check_directory_structure():
+    """Check if basic directory structure exists"""
+    print("Checking directory structure...")
+    
+    required_dirs = [
+        "src",
+        "setup", 
+        "tests",
+        "environments"
+    ]
+    
+    all_good = True
+    for folder in required_dirs:
+        folder_path = project_root / folder
+        if folder_path.exists():
+            print(f"   V {folder}/ exists")
+        else:
+            print(f"   X {folder}/ missing")
+            all_good = False
+    
+    return all_good
+
+def check_model_files():
+    """Check if YOLO model files are available"""
+    print("Checking model files...")
+    
+    # Check for data.yaml first
+    config_file = project_root / "data.yaml"
+    if config_file.exists():
+        print(f"   V data.yaml exists")
+    else:
+        print(f"   X data.yaml missing")
+        return False
+    
+    # Look for model files in common locations
+    model_locations = [
+        project_root / "models",
+        project_root / "data" / "models",
+        Path.home() / ".cache" / "ultralytics"
+    ]
+    
+    model_files = ["yolo11n.pt", "yolo11s.pt", "yolo11m.pt"]
+    found_models = []
+    
+    for location in model_locations:
+        if location.exists():
+            for model_file in model_files:
+                model_path = location / model_file
+                if model_path.exists():
+                    found_models.append(model_file)
+                    print(f"   V {model_file} exists")
+    
+    if not found_models:
+        for model_file in model_files:
+            print(f"   X {model_file} missing")
+    
+    return len(found_models) > 0
+
+def check_script_files():
+    """Check if key script files exist"""
+    print("Checking script files...")
+    
+    key_scripts = [
+        "src/run_pipeline.py",
+        "setup/setup.py",
+        "launch.py"
+    ]
+    
+    all_good = True
+    for script in key_scripts:
+        script_path = project_root / script
+        if script_path.exists():
+            print(f"   V {script} exists")
+        else:
+            print(f"   X {script} missing")
+            all_good = False
+    
+    return all_good
+
+def main():
+    """Run pipeline validation checks"""
+    print("PLC Diagram Processor - Pipeline Validation")
+    print("=" * 50)
+    
+    checks = [
+        ("Directory Structure", check_directory_structure),
+        ("Model Files", check_model_files),
+        ("Script Files", check_script_files)
+    ]
+    
+    results = []
+    for check_name, check_func in checks:
+        print(f"\n{check_name}:")
+        result = check_func()
+        results.append((check_name, result))
+    
+    # Summary
+    print("\n" + "=" * 50)
+    print("Validation Summary:")
+    
+    passed = sum(1 for _, result in results if result)
+    total = len(results)
+    
+    for check_name, result in results:
+        status = "V" if result else "X"
+        print(f"  {status} {check_name}")
+    
+    if passed == total:
+        print("\nV Pipeline setup validation completed successfully!")
+        return 0
+    else:
+        print(f"\nX {total - passed} validation checks failed")
+        print("Please resolve the missing components before running the pipeline.")
+        return 1
+
 if __name__ == "__main__":
     # Run setup validation
     success = test_pipeline_setup()

@@ -10,35 +10,46 @@ from io import BytesIO
 from pdf2image import convert_from_path
 import argparse
 
-def detect_and_remove_qr_stripe(img, threshold=30):
-    """Detects and removes vertical QR stripe from right side of image."""
-    h, w = img.shape[:2]
+def detect_qr_stripe(image):
+    """Detect horizontal QR code stripe at top of image"""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # Scan from right to left for consistent low-variance column
-    for x in range(w-1, int(w*0.6), -1):
-        if np.std(img[:, x]) < threshold:
-            # Found potential QR stripe - verify with neighboring columns
-            if np.std(img[:, x-1]) < threshold and np.std(img[:, x-2]) < threshold:
-                print(f"🔍 Detected QR stripe at x={x}")
-                return img[:, :x]
+    # Look for QR-like pattern in top 15% of image
+    top_region = gray[:int(gray.shape[0] * 0.15), :]
     
-    return img
+    # Simple detection: look for alternating dark/light pattern
+    for y in range(top_region.shape[0]):
+        row = top_region[y, :]
+        transitions = np.sum(np.abs(np.diff(row > 128)))
+        
+        # If many transitions, likely QR stripe
+        if transitions > row.shape[0] * 0.1:
+            x = np.argmax(row < 128)  # Find first dark pixel
+            print(f"X Detected QR stripe at x={x}")
+            return x
+    
+    return None
 
-def compare_images(original_img, reconstructed_img, output_diff_path):
-    h1, w1 = original_img.shape[:2]
-    h2, w2 = reconstructed_img.shape[:2]
-    if (h1, w1) != (h2, w2):
-        reconstructed_img = cv2.resize(reconstructed_img, (w1, h1))
-    diff = cv2.absdiff(original_img, reconstructed_img)
-    gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray_diff, 20, 255, cv2.THRESH_BINARY)
-    diff_mask = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
-    overlay = cv2.addWeighted(original_img, 0.7, diff_mask, 0.3, 0)
-    cv2.imwrite(output_diff_path, overlay)
-    nonzero = np.count_nonzero(thresh)
-    total = thresh.size
-    similarity = 100 * (1 - nonzero / total)
-    print(f"✅ Match: {similarity:.2f}% — Diff saved: {output_diff_path}")
+def compare_images(img1_path, img2_path, output_diff_path):
+    """Compare two images and save difference"""
+    img1 = cv2.imread(str(img1_path))
+    img2 = cv2.imread(str(img2_path))
+    
+    if img1 is None or img2 is None:
+        return 0
+    
+    # Resize to match if needed
+    if img1.shape != img2.shape:
+        img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
+    
+    # Calculate difference
+    diff = cv2.absdiff(img1, img2)
+    similarity = 100 * (1 - np.mean(diff) / 255)
+    
+    # Save difference image
+    cv2.imwrite(str(output_diff_path), diff)
+    
+    print(f"V Match: {similarity:.2f}% — Diff saved: {output_diff_path}")
     return similarity
 
 def create_pdf_from_images(images, pdf_path, dpi=300):
@@ -73,9 +84,12 @@ def reconstruct_pdf_from_metadata(snippet_folder, metadata_path, output_folder, 
             pil_pages = convert_from_path(original_pdf, poppler_path=poppler_path)
             original_pages = [cv2.cvtColor(np.array(p), cv2.COLOR_RGB2BGR) for p in pil_pages]
             if remove_qr:
-                original_pages = [detect_and_remove_qr_stripe(p) for p in original_pages]
+                original_pages = [detect_qr_stripe(p) for p in original_pages]
         except Exception as e:
-            print(f"⚠️ Failed to load original PDF: {e}")
+            print(f"X Failed to load original PDF: {e}")
+            original_pages = None
+    else:
+        original_pages = None
 
     reconstructed_images = []
 
@@ -95,11 +109,11 @@ def reconstruct_pdf_from_metadata(snippet_folder, metadata_path, output_folder, 
 
             snippet = cv2.imread(path)
             if snippet is None:
-                raise ValueError(f"❌ Could not read image: {path}")
+                raise ValueError(f"X Could not read image: {path}")
             
             # Remove QR stripe if not already removed during snipping
             if not remove_qr:
-                snippet = detect_and_remove_qr_stripe(snippet)
+                snippet = detect_qr_stripe(snippet)
             
             s_h, s_w = snippet.shape[:2]
 
@@ -108,10 +122,10 @@ def reconstruct_pdf_from_metadata(snippet_folder, metadata_path, output_folder, 
             print(f"   Image shape:     {s_w}x{s_h}")
 
             if s_h != expected_h:
-                raise ValueError(f"❌ Height mismatch for {snippet_info['filename']}: expected {expected_h}, got {s_h}")
+                raise ValueError(f"X Height mismatch for {snippet_info['filename']}: expected {expected_h}, got {s_h}")
             
             if s_w != expected_w:
-                print(f"⚠️ Width difference detected. Adjusting placement.")
+                print(f"X Width difference detected. Adjusting placement.")
                 x_offset = (expected_w - s_w) // 2
                 x1_adjusted = x1 + x_offset
                 x2_adjusted = x1_adjusted + s_w
@@ -130,7 +144,7 @@ def reconstruct_pdf_from_metadata(snippet_folder, metadata_path, output_folder, 
 
         if original_pages and page_num <= len(original_pages):
             diff_path = os.path.join(output_folder, f"{base_name}_page_{page_num}_diff.png")
-            compare_images(original_pages[page_num - 1], canvas_img, diff_path)
+            compare_images(img_path, original_pages[page_num - 1], diff_path)
 
     pdf_path = os.path.join(output_folder, f"{base_name}_reconstructed.pdf")
     create_pdf_from_images(reconstructed_images, pdf_path, dpi)
@@ -151,7 +165,7 @@ def main():
     args = parser.parse_args()
     metadata_files = glob.glob(os.path.join(args.input, "*_metadata.json"))
     if not metadata_files:
-        print("❌ No metadata files found.")
+        print("X No metadata files found.")
         return
 
     for meta_path in metadata_files:
@@ -160,7 +174,7 @@ def main():
         with open(meta_path, 'r') as f:
             metadata = json.load(f)
         base_name = metadata.get("original_pdf")
-        print(f"\n🔁 Reconstructing {base_name}")
+        print(f"\nX Reconstructing {base_name}")
         original_pdf = find_original_pdf(base_name, args.pdfs)
         if original_pdf:
             print(f"🔎 Matching original PDF found: {original_pdf}")

@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "data": {
+    "status": "success",
+    "directories_created": [
+      "D:\\MarMe\\github\\0.3\\plc-data\\processed\\csv_output"
+    ],
+    "input_validation": {
+      "pdfs_found": 56,
+      "config_valid": true,
+      "errors": []
+    },
+    "environment_health": {
+      "python_version": "3.11",
+      "dependencies_available": {
+        "json": true,
+        "pathlib": true,
+        "os": true,
+        "sys": true,
+        "fitz": true,
+        "cv2": true,
+        "numpy": true,
+        "PIL": true
+      },
+      "warnings": []
+    },
+    "config_validated": true
+  },
+  "error": null,
+  "duration": 0.5668141841888428,
+  "timestamp": "2025-06-27T17:36:39.284558"
+}

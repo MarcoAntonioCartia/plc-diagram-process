@@ -79,10 +79,11 @@ def convert_detection_format(input_file: Path, output_file: Path = None) -> Dict
     with open(output_file, 'w') as f:
         json.dump(converted_data, f, indent=2)
     
-    print(f"✓ Conversion completed:")
-    print(f"  Original detections: {sum(len(p.get('detections', [])) for p in original_data.get('pages', []))}")
-    print(f"  Converted detections: {sum(len(p.get('detections', [])) for p in converted_data.get('pages', []))}")
-    print(f"  Saved to: {output_file}")
+    print(f"V Conversion completed:")
+    print(f"  Input file: {input_file}")
+    print(f"  Output file: {output_file}")
+    print(f"  Pages processed: {len(converted_data['pages'])}")
+    print(f"  Total detections: {sum(len(p.get('detections', [])) for p in converted_data.get('pages', []))}")
     
     return converted_data
 

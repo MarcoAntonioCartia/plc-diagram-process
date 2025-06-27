@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "data": {},
+  "error": "Stage training failed: PyTorch/Ultralytics not available: No module named 'torch'",
+  "duration": 0.009288787841796875,
+  "timestamp": "2025-06-27T17:36:39.294847"
+}
