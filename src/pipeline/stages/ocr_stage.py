@@ -49,7 +49,11 @@ class OcrStage(BaseStage):
     
     def _execute_multi_env(self, config) -> Dict[str, Any]:
         """Execute OCR in multi-environment mode"""
-        print("  X Running in multi-environment mode")
+        from src.utils.progress_display import create_stage_progress
+        
+        # Create progress display
+        progress = create_stage_progress("OCR")
+        progress.start_stage("Running in multi-environment mode")
         
         try:
             from src.utils.multi_env_manager import MultiEnvironmentManager
@@ -62,6 +66,7 @@ class OcrStage(BaseStage):
             detection_dir = data_root / "processed" / "detdiagrams"
             
             if not detection_dir.exists():
+                progress.complete_stage("No detection files found to process")
                 return {
                     'status': 'success',
                     'message': 'No detection files found to process',
@@ -73,6 +78,7 @@ class OcrStage(BaseStage):
             detection_files = list(detection_dir.rglob("*_detections.json"))
             
             if not detection_files:
+                progress.complete_stage("No detection files found to process")
                 return {
                     'status': 'success',
                     'message': 'No detection files found to process',
@@ -82,8 +88,12 @@ class OcrStage(BaseStage):
             
             # Process each detection file
             results = []
-            for detection_file in detection_files:
+            for i, detection_file in enumerate(detection_files, 1):
                 try:
+                    # Update progress
+                    progress.start_file(f"{detection_file.name} ({i}/{len(detection_files)})")
+                    progress.update_progress("Initializing OCR...")
+                    
                     # Prepare OCR payload
                     ocr_payload = {
                         'action': 'extract_text',
@@ -92,36 +102,43 @@ class OcrStage(BaseStage):
                         'config': self.config
                     }
                     
+                    progress.update_progress("Extracting text from detected regions...")
+                    
                     # Run OCR worker
                     result = env_manager.run_ocr_pipeline(ocr_payload)
                     
                     if result.get('status') == 'success':
                         ocr_data = result.get('results', {})
+                        text_regions = ocr_data.get('total_text_regions', 0)
+                        progress.complete_file(detection_file.name, f"{text_regions} text regions")
                         results.append({
                             'detection_file': detection_file.name,
                             'success': True,
-                            'text_regions': ocr_data.get('total_text_regions', 0)
+                            'text_regions': text_regions
                         })
-                        print(f"    V Extracted {ocr_data.get('total_text_regions', 0)} text regions")
                     else:
+                        error_msg = result.get('error', 'Unknown error')
+                        progress.error_file(detection_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
                         results.append({
                             'detection_file': detection_file.name,
                             'success': False,
-                            'error': result.get('error', 'Unknown error')
+                            'error': error_msg
                         })
-                        print(f"    X OCR failed: {result.get('error', 'Unknown error')}")
                         
                 except Exception as e:
+                    error_msg = str(e)
+                    progress.error_file(detection_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
                     results.append({
                         'detection_file': detection_file.name,
                         'success': False,
-                        'error': str(e)
+                        'error': error_msg
                     })
-                    print(f"    X OCR failed: {str(e)}")
             
             # Calculate summary
             successful = sum(1 for r in results if r['success'])
             total_text_regions = sum(r.get('text_regions', 0) for r in results if r['success'])
+            
+            progress.complete_stage(f"{successful}/{len(detection_files)} files, {total_text_regions} text regions")
             
             return {
                 'status': 'success',
@@ -133,6 +150,7 @@ class OcrStage(BaseStage):
             }
             
         except Exception as e:
+            progress.error_file("", f"Stage failed: {str(e)}")
             return {
                 'status': 'error',
                 'error': str(e),

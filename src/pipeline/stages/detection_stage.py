@@ -49,7 +49,11 @@ class DetectionStage(BaseStage):
     
     def _execute_multi_env(self, config) -> Dict[str, Any]:
         """Execute detection in multi-environment mode"""
-        print("  X Running in multi-environment mode")
+        from src.utils.progress_display import create_stage_progress
+        
+        # Create progress display
+        progress = create_stage_progress("detection")
+        progress.start_stage("Running in multi-environment mode")
         
         try:
             from src.utils.multi_env_manager import MultiEnvironmentManager
@@ -63,6 +67,7 @@ class DetectionStage(BaseStage):
             pdf_files = list(pdf_dir.glob("*.pdf")) if pdf_dir.exists() else []
             
             if not pdf_files:
+                progress.complete_stage("No PDF files found to process")
                 return {
                     'status': 'success',
                     'message': 'No PDF files found to process',
@@ -72,8 +77,12 @@ class DetectionStage(BaseStage):
             
             # Process each PDF file
             results = []
-            for pdf_file in pdf_files:
+            for i, pdf_file in enumerate(pdf_files, 1):
                 try:
+                    # Update progress
+                    progress.start_file(f"{pdf_file.name} ({i}/{len(pdf_files)})")
+                    progress.update_progress("Initializing detection...")
+                    
                     # Prepare detection payload
                     detection_payload = {
                         'action': 'detect',
@@ -81,6 +90,8 @@ class DetectionStage(BaseStage):
                         'output_dir': str(data_root / "processed" / "detdiagrams"),
                         'config': self.config
                     }
+                    
+                    progress.update_progress("Running YOLO detection...")
                     
                     # Run detection worker
                     result = env_manager.run_detection_pipeline(detection_payload)
@@ -91,10 +102,10 @@ class DetectionStage(BaseStage):
                         if isinstance(detection_data, str):
                             # Parse the string result or use a default
                             total_detections = 0
-                            print(f"    V Detection completed: {detection_data}")
+                            progress.complete_file(pdf_file.name, f"Completed")
                         else:
                             total_detections = detection_data.get('total_detections', 0) if isinstance(detection_data, dict) else 0
-                            print(f"    V Detected {total_detections} objects")
+                            progress.complete_file(pdf_file.name, f"{total_detections} detections")
                         
                         results.append({
                             'pdf_file': pdf_file.name,
@@ -103,24 +114,27 @@ class DetectionStage(BaseStage):
                         })
                     else:
                         error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
+                        progress.error_file(pdf_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
                         results.append({
                             'pdf_file': pdf_file.name,
                             'success': False,
                             'error': error_msg
                         })
-                        print(f"    X Detection failed: {error_msg}")
                         
                 except Exception as e:
+                    error_msg = str(e)
+                    progress.error_file(pdf_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
                     results.append({
                         'pdf_file': pdf_file.name,
                         'success': False,
-                        'error': str(e)
+                        'error': error_msg
                     })
-                    print(f"    X Detection failed: {str(e)}")
             
             # Calculate summary
             successful = sum(1 for r in results if r['success'])
             total_detections = sum(r.get('detections', 0) for r in results if r['success'])
+            
+            progress.complete_stage(f"{successful}/{len(pdf_files)} files, {total_detections} total detections")
             
             return {
                 'status': 'success',
@@ -132,6 +146,7 @@ class DetectionStage(BaseStage):
             }
             
         except Exception as e:
+            progress.error_file("", f"Stage failed: {str(e)}")
             return {
                 'status': 'error',
                 'error': str(e),

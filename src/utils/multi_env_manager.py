@@ -200,6 +200,9 @@ class MultiEnvironmentManager:
 
     def run_ocr_pipeline(self, input_dict: Dict[str, Any]) -> Dict[str, Any]:
         return self._run_worker("ocr_worker.py", input_dict, self.ocr)
+    
+    def run_training_pipeline(self, input_dict: Dict[str, Any]) -> Dict[str, Any]:
+        return self._run_worker("training_worker.py", input_dict, self.detection)
 
     # Convenience wrapper --------------------------------------------------
     def run_complete_pipeline(

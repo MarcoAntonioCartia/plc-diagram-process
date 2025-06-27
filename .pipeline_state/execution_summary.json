@@ -1,17 +1,51 @@
 {
-  "success": false,
-  "stages_run": 1,
+  "success": true,
+  "stages_run": 2,
   "stages_skipped": 0,
-  "total_duration": 0.001104,
-  "start_time": "2025-06-27T18:37:10.419387",
-  "end_time": "2025-06-27T18:37:10.420491",
+  "total_duration": 0.330167,
+  "start_time": "2025-06-27T19:23:13.051126",
+  "end_time": "2025-06-27T19:23:13.381293",
   "results": {
-    "detection": {
-      "success": false,
-      "data": {},
-      "error": "Stage dependencies not met",
-      "duration": 0.00022339820861816406,
-      "timestamp": "2025-06-27T18:37:10.420385"
+    "preparation": {
+      "success": true,
+      "data": {
+        "status": "success",
+        "directories_created": [],
+        "input_validation": {
+          "pdfs_found": 56,
+          "config_valid": true,
+          "errors": []
+        },
+        "environment_health": {
+          "python_version": "3.13",
+          "dependencies_available": {
+            "json": true,
+            "pathlib": true,
+            "os": true,
+            "sys": true,
+            "fitz": true,
+            "cv2": true,
+            "numpy": true,
+            "PIL": true
+          },
+          "warnings": []
+        },
+        "config_validated": true
+      },
+      "error": null,
+      "duration": 0.29647374153137207,
+      "timestamp": "2025-06-27T19:23:13.348589"
+    },
+    "training": {
+      "success": true,
+      "data": {
+        "status": "error",
+        "error": "No pretrained models available for fine-tuning",
+        "environment": "yolo_env"
+      },
+      "error": null,
+      "duration": 0.030414819717407227,
+      "timestamp": "2025-06-27T19:23:13.380650"
     }
   },
   "ci_mode": false

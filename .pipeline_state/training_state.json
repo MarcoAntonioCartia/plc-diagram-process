@@ -1,31 +1,11 @@
 {
   "success": true,
   "data": {
-    "status": "success",
-    "environment": "yolo_env",
-    "model_validation": {
-      "models_found": [
-        "yolo11n.pt",
-        "yolo11s.pt",
-        "yolo11m.pt",
-        "yolo11l.pt"
-      ],
-      "models_missing": [],
-      "validation_errors": [],
-      "default_model": "yolo11n.pt"
-    },
-    "training_config": {
-      "epochs": 100,
-      "batch_size": 16,
-      "learning_rate": 0.001,
-      "image_size": 640,
-      "device": "cuda",
-      "model_name": "yolo11m.pt"
-    },
-    "ready_for_training": true,
-    "multi_env_mode": true
+    "status": "error",
+    "error": "No pretrained models available for fine-tuning",
+    "environment": "yolo_env"
   },
   "error": null,
-  "duration": 0.030060529708862305,
-  "timestamp": "2025-06-27T18:37:31.828548"
+  "duration": 0.030414819717407227,
+  "timestamp": "2025-06-27T19:23:13.380650"
 }
