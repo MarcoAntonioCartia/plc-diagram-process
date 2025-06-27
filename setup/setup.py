@@ -1778,6 +1778,7 @@ echo "Python: {self.venv_python}"
             ("Installing PyTorch (Direct CUDA)", lambda: self.install_pytorch(self.capabilities)),
             ("Installing other packages", self.install_other_packages),
             ("Setting up data directories", self.setup_data_directories),
+            ("Interactive data/model downloads", self.interactive_download_prompt), 
             ("Creating activation scripts", self.create_activation_scripts),
             ("Installing specialized packages", lambda: self.install_specialized_packages(self.capabilities)),
             ("Finalize NumPy version", self.ensure_latest_numpy),
@@ -1844,6 +1845,70 @@ echo "Python: {self.venv_python}"
         print("4. Run text extraction: python src/ocr/run_text_extraction.py")
         
         return True
+
+    # --------------------------------------------------
+    # DATA / MODEL DOWNLOAD SUPPORT 
+    # --------------------------------------------------
+    def load_download_config(self) -> Dict:
+        """Load setup/config/download_config.yaml – fall back to sane defaults."""
+        cfg_file = self.project_root / "setup" / "config" / "download_config.yaml"
+        if not cfg_file.exists():
+            # Legacy-style defaults if the file has not been created yet
+            return {
+                "storage_backend": "network_drive",
+                "setup": {
+                    "prompt_for_downloads": True,
+                    "auto_download_dataset": False,
+                    "auto_download_models": False,
+                },
+            }
+        try:
+            with open(cfg_file, "r") as fh:
+                return yaml.safe_load(fh) or {}
+        except Exception as exc:
+            print(f"⚠ Could not read download_config.yaml: {exc}")
+            return {}
+
+    def interactive_download_prompt(self) -> bool:
+        """Ask the user whether to download datasets / models and delegate to the managers."""
+        cfg = self.load_download_config()
+        # Honour non-interactive settings from the YAML
+        if not cfg.get("setup", {}).get("prompt_for_downloads", True):
+            return True
+
+        print("\n=== Data and Model Download Options ===")
+        print("1. Download datasets")
+        print("2. Download models")
+        print("3. Download BOTH datasets and models")
+        print("4. Skip downloads")
+
+        if self.dry_run:
+            print("DRY RUN: would invoke manage_datasets / manage_models here")
+            return True
+
+        while True:
+            choice = input("Select option (1-4): ").strip()
+            if choice not in {"1", "2", "3", "4"}:
+                print("Please enter 1-4"); continue
+            if choice == "4":
+                return True  # user chose to skip
+
+            venv_py   = str(self.venv_python)
+            setup_dir = self.project_root / "setup"
+            success   = True
+            try:
+                if choice in {"1", "3"}:  # DATASETS
+                    success &= subprocess.call(
+                        [venv_py, str(setup_dir / "manage_datasets.py"), "--interactive"]
+                    ) == 0
+                if choice in {"2", "3"}:  # MODELS
+                    success &= subprocess.call(
+                        [venv_py, str(setup_dir / "manage_models.py"), "--interactive"]
+                    ) == 0
+            except KeyboardInterrupt:
+                print("\nDownload step cancelled by user")
+                return False
+            return success
 
 def main():
     """Main setup function"""
