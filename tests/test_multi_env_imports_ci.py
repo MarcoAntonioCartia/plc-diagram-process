@@ -16,12 +16,22 @@ def test_detection_env_ci():
     """Test detection environment with CI-specific handling"""
     project_root = Path(__file__).parent.parent
     
-    # Try environments subdirectory first (new structure)
-    detection_python = project_root / "environments" / "detection_env" / "bin" / "python"
+    # Try environments subdirectory first (new structure) - check for yolo_env first, then detection_env
+    detection_python = project_root / "environments" / "yolo_env" / "bin" / "python"
+    if not detection_python.exists():
+        detection_python = project_root / "environments" / "yolo_env" / "Scripts" / "python.exe"
+    
+    # Fallback to detection_env for backward compatibility
+    if not detection_python.exists():
+        detection_python = project_root / "environments" / "detection_env" / "bin" / "python"
     if not detection_python.exists():
         detection_python = project_root / "environments" / "detection_env" / "Scripts" / "python.exe"
     
     # Fallback to root directory (legacy structure)
+    if not detection_python.exists():
+        detection_python = project_root / "yolo_env" / "bin" / "python"
+    if not detection_python.exists():
+        detection_python = project_root / "yolo_env" / "Scripts" / "python.exe"
     if not detection_python.exists():
         detection_python = project_root / "detection_env" / "bin" / "python"
     if not detection_python.exists():
@@ -180,17 +190,27 @@ def test_environment_isolation_ci():
     """Test environment isolation with CI-specific handling"""
     project_root = Path(__file__).parent.parent
     
-    # Try environments subdirectory first (new structure)
-    detection_python = project_root / "environments" / "detection_env" / "bin" / "python"
+    # Try environments subdirectory first (new structure) - check for yolo_env first, then detection_env
+    detection_python = project_root / "environments" / "yolo_env" / "bin" / "python"
     ocr_python = project_root / "environments" / "ocr_env" / "bin" / "python"
     
     # Handle Windows paths
     if not detection_python.exists():
-        detection_python = project_root / "environments" / "detection_env" / "Scripts" / "python.exe"
+        detection_python = project_root / "environments" / "yolo_env" / "Scripts" / "python.exe"
     if not ocr_python.exists():
         ocr_python = project_root / "environments" / "ocr_env" / "Scripts" / "python.exe"
     
+    # Fallback to detection_env for backward compatibility
+    if not detection_python.exists():
+        detection_python = project_root / "environments" / "detection_env" / "bin" / "python"
+    if not detection_python.exists():
+        detection_python = project_root / "environments" / "detection_env" / "Scripts" / "python.exe"
+    
     # Fallback to root directory (legacy structure)
+    if not detection_python.exists():
+        detection_python = project_root / "yolo_env" / "bin" / "python"
+    if not detection_python.exists():
+        detection_python = project_root / "yolo_env" / "Scripts" / "python.exe"
     if not detection_python.exists():
         detection_python = project_root / "detection_env" / "bin" / "python"
     if not detection_python.exists():
