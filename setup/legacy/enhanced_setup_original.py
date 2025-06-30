@@ -102,7 +102,7 @@ class EnhancedPLCSetup:
                 if response.lower() != 'y':
                     return False
         else:
-            print("✓ Build tools already available")
+            print("V Build tools already available")
         
         return True
 
@@ -537,10 +537,10 @@ wsl -e {tool} %*
         
         try:
             result = subprocess.run(command, check=True, capture_output=True, text=True)
-            print(f"  ✓ {description}")
+            print(f"  V {description}")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"  ✗ {description} failed: {e}")
+            print(f"  X {description} failed: {e}")
             return False
     
     def create_virtual_environment(self) -> bool:
@@ -551,7 +551,7 @@ wsl -e {tool} %*
             print(f"Virtual environment already exists at: {self.venv_path}")
             
             if self.venv_python.exists():
-                print("✓ Existing virtual environment appears valid")
+                print("V Existing virtual environment appears valid")
                 response = input("Recreate virtual environment? (y/n): ")
                 if response.lower() != 'y':
                     return True
@@ -561,16 +561,16 @@ wsl -e {tool} %*
                 import shutil
                 shutil.rmtree(self.venv_path)
             except Exception as e:
-                print(f"✗ Failed to remove existing environment: {e}")
+                print(f"X Failed to remove existing environment: {e}")
                 return False
         
         print("Creating virtual environment...")
         try:
             subprocess.run([sys.executable, "-m", "venv", str(self.venv_path)], check=True)
-            print("✓ Virtual environment created successfully")
+            print("V Virtual environment created successfully")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to create virtual environment: {e}")
+            print(f"X Failed to create virtual environment: {e}")
             return False
     
     def upgrade_pip_tools(self) -> bool:
@@ -578,7 +578,7 @@ wsl -e {tool} %*
         print("\n=== Upgrading Virtual Environment Tools ===")
         
         if not self.venv_python.exists():
-            print("✗ Virtual environment not found")
+            print("X Virtual environment not found")
             return False
         
         tools = ["pip", "setuptools", "wheel"]
@@ -595,9 +595,9 @@ wsl -e {tool} %*
                     subprocess.run([
                         str(self.venv_pip), "install", "--upgrade", tool
                     ], check=True, capture_output=True)
-                print(f"✓ {tool} upgraded successfully")
+                print(f"V {tool} upgraded successfully")
             except subprocess.CalledProcessError as e:
-                print(f"✗ Failed to upgrade {tool}: {e}")
+                print(f"X Failed to upgrade {tool}: {e}")
                 return False
         
         return True
@@ -630,8 +630,8 @@ wsl -e {tool} %*
                             gpu_fallback_info["gpu_models"].append(parts[0])
                             gpu_fallback_info["driver_version"] = parts[1]
                             gpu_fallback_info["has_nvidia_gpu"] = True
-                            print(f"✓ Found GPU: {parts[0]}")
-                            print(f"✓ Driver version: {parts[1]}")
+                            print(f"V Found GPU: {parts[0]}")
+                            print(f"V Driver version: {parts[1]}")
         except Exception as e:
             print(f"nvidia-smi check failed: {e}")
         
@@ -647,7 +647,7 @@ wsl -e {tool} %*
                         if match:
                             gpu_fallback_info["cuda_version"] = match.group(1)
                             gpu_fallback_info["has_cuda"] = True
-                            print(f"✓ CUDA version: {gpu_fallback_info['cuda_version']}")
+                            print(f"V CUDA version: {gpu_fallback_info['cuda_version']}")
                             break
             except:
                 pass
@@ -663,7 +663,7 @@ wsl -e {tool} %*
                         # Assume CUDA is available if driver is present
                         gpu_fallback_info["has_cuda"] = True
                         gpu_fallback_info["cuda_version"] = "11.8"  # Safe default
-                        print("✓ CUDA runtime assumed available (using default version)")
+                        print("V CUDA runtime assumed available (using default version)")
                 except:
                     pass
         
@@ -685,7 +685,7 @@ wsl -e {tool} %*
             
             # If fallback found GPU, update our gpu_info
             if fallback_gpu_info["has_nvidia_gpu"]:
-                print("✓ Fallback GPU detection successful!")
+                print("V Fallback GPU detection successful!")
                 gpu_info.update(fallback_gpu_info)
             else:
                 print(":( Fallback GPU detection also failed")
@@ -742,7 +742,7 @@ wsl -e {tool} %*
         try:
             print("Installing PyTorch (this may take several minutes)...")
             subprocess.run(command, check=True)
-            print("✓ PyTorch installed successfully")
+            print("V PyTorch installed successfully")
             
             # Verify CUDA availability after installation
             if has_gpu or has_wsl_gpu:
@@ -763,7 +763,7 @@ wsl -e {tool} %*
             
             return True
         except subprocess.CalledProcessError as e:
-            print(f"✗ PyTorch installation failed: {e}")
+            print(f"X PyTorch installation failed: {e}")
             return False
     
     def install_other_packages(self) -> bool:
@@ -773,7 +773,7 @@ wsl -e {tool} %*
         requirements_file = self.project_root / "requirements.txt"
         
         if not requirements_file.exists():
-            print(f"✗ Requirements file not found: {requirements_file}")
+            print(f"X Requirements file not found: {requirements_file}")
             return False
         
         # Parse requirements and exclude PyTorch packages (already installed)
@@ -789,7 +789,7 @@ wsl -e {tool} %*
                         all_packages.append(line)
         
         if not all_packages:
-            print("✓ No additional packages to install")
+            print("V No additional packages to install")
             return True
         
         print(f"Installing {len(all_packages)} packages with robust strategies...")
@@ -798,7 +798,7 @@ wsl -e {tool} %*
         success = self.package_installer.install_packages(all_packages)
         
         if success:
-            print("✓ All packages installed successfully")
+            print("V All packages installed successfully")
         else:
             print(":( Some packages failed to install")
             print("Check the output above for details")
@@ -822,19 +822,19 @@ wsl -e {tool} %*
         for package, description in test_packages:
             try:
                 result = subprocess.run([
-                    str(self.venv_python), "-c", f"import {package}; print('✓ {description} working')"
+                    str(self.venv_python), "-c", f"import {package}; print('V {description} working')"
                 ], capture_output=True, text=True, timeout=30)
                 
                 if result.returncode == 0:
                     print(result.stdout.strip())
                 else:
-                    print(f"✗ {description} failed to import")
+                    print(f"X {description} failed to import")
                     failed_packages.append(description)
             except subprocess.TimeoutExpired:
                 print(f":( {description} import test timed out")
                 failed_packages.append(description)
             except Exception as e:
-                print(f"✗ {description} test failed: {e}")
+                print(f"X {description} test failed: {e}")
                 failed_packages.append(description)
         
         if failed_packages:
@@ -843,7 +843,7 @@ wsl -e {tool} %*
                 print(f"  - {pkg}")
             return False
         else:
-            print("\n✓ All key packages verified successfully")
+            print("\nV All key packages verified successfully")
             return True
     
     def setup_data_directories(self) -> bool:
@@ -864,9 +864,9 @@ wsl -e {tool} %*
         for directory in directories:
             try:
                 directory.mkdir(parents=True, exist_ok=True)
-                print(f"✓ {directory}")
+                print(f"V {directory}")
             except Exception as e:
-                print(f"✗ Failed to create {directory}: {e}")
+                print(f"X Failed to create {directory}: {e}")
                 return False
         
         return True
@@ -899,10 +899,10 @@ echo "Python: {self.venv_python}"
             if self.system != 'windows':
                 os.chmod(activate_script, 0o755)
             
-            print(f"✓ Created: {activate_script}")
+            print(f"V Created: {activate_script}")
             return True
         except Exception as e:
-            print(f"✗ Failed to create activation script: {e}")
+            print(f"X Failed to create activation script: {e}")
             return False
     
     def run_complete_setup(self) -> bool:
@@ -937,15 +937,15 @@ echo "Python: {self.venv_python}"
             
             try:
                 if not step_func():
-                    print(f"\n✗ Setup failed at step: {step_name}")
+                    print(f"\nX Setup failed at step: {step_name}")
                     return False
             except Exception as e:
-                print(f"\n✗ Setup failed at step: {step_name}")
+                print(f"\nX Setup failed at step: {step_name}")
                 print(f"Error: {e}")
                 return False
         
         print("\n" + "=" * 60)
-        print("✓ ENHANCED SETUP COMPLETED SUCCESSFULLY!")
+        print("V ENHANCED SETUP COMPLETED SUCCESSFULLY!")
         print("=" * 60)
         
         # Show GPU status
@@ -998,12 +998,12 @@ def main():
         gpu_info = capabilities["gpu_info"]
         build_info = capabilities["build_tools_status"]
         
-        print(f"GPU Support: {'✓' if gpu_info['has_nvidia_gpu'] else '✗'}")
+        print(f"GPU Support: {'V' if gpu_info['has_nvidia_gpu'] else 'X'}")
         if gpu_info['has_nvidia_gpu']:
             print(f"  GPU: {gpu_info['gpu_models'][0]}")
             print(f"  CUDA: {gpu_info.get('cuda_version', 'Not detected')}")
         
-        print(f"Build Tools: {'✓' if not build_info['needs_installation'] else '✗'}")
+        print(f"Build Tools: {'V' if not build_info['needs_installation'] else 'X'}")
         if build_info['needs_installation']:
             print(f"  Recommended: {build_info['installation_method']}")
         
@@ -1013,17 +1013,17 @@ def main():
         success = setup.run_complete_setup()
         
         if success:
-            print("\n✓ Setup completed successfully!")
+            print("\nV Setup completed successfully!")
             return 0
         else:
-            print("\n✗ Setup failed!")
+            print("\nX Setup failed!")
             return 1
             
     except KeyboardInterrupt:
         print("\n\nSetup interrupted by user.")
         return 1
     except Exception as e:
-        print(f"\n✗ Setup failed with error: {e}")
+        print(f"\nX Setup failed with error: {e}")
         return 1
 
 if __name__ == "__main__":

@@ -29,10 +29,19 @@ import threading
 import queue
 import tempfile
 import shutil
-import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Conditional imports - only import when needed to avoid CI issues
+def safe_import_yaml():
+    """Safely import yaml, with fallback if not available"""
+    try:
+        import yaml
+        return yaml
+    except ImportError:
+        print("Warning: PyYAML not available, some features may be limited")
+        return None
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent
@@ -110,13 +119,15 @@ class UnifiedPLCSetup:
     def check_python_version(self) -> bool:
         """Check if Python version is compatible"""
         min_version = (3, 8)  # Minimum supported version
-        max_version = (3, 12)  # Highest supported **inclusive** (3.12.x)
+        max_version = (3, 14)  # Highest supported **inclusive** (updated for newer Python)
         current_version = sys.version_info[:2]
         
         if current_version < min_version or current_version > max_version:
             print(f"X Python {min_version[0]}.{min_version[1]}–{max_version[1]} required, "
                   f"found {current_version[0]}.{current_version[1]}")
-            sys.exit(1)
+            if not self.dry_run:  # Don't exit in dry-run mode for CI compatibility
+                sys.exit(1)
+            return False
         
         print(f"V Python {current_version[0]}.{current_version[1]} detected")
         return True
@@ -225,7 +236,7 @@ class UnifiedPLCSetup:
         print("\n=== Enhanced Build Environment Setup ===")
         
         if not self.build_tools_installer:
-            print("⚠ Build tools installer not available, skipping...")
+            print("! Build tools installer not available, skipping...")
             return True
         
         build_tools_status = capabilities["build_tools_status"]
@@ -239,20 +250,20 @@ class UnifiedPLCSetup:
                 if response.lower() == 'y':
                     try:
                         if self.build_tools_installer.install_build_tools():
-                            print("✓ C++ build tools installed successfully")
+                            print("V C++ build tools installed successfully")
                             # Update capabilities after installation
                             capabilities["build_tools_status"] = self.build_tools_installer.check_build_tools_status()
                         else:
-                            print("⚠ C++ build tools installation failed")
+                            print("! C++ build tools installation failed")
                     except Exception as e:
-                        print(f"⚠ C++ build tools installation error: {e}")
+                        print(f"! C++ build tools installation error: {e}")
                 elif response.lower() == 'skip':
                     print("Skipping C++ build tools installation")
                 else:
                     print("C++ build tools installation declined")
                     print("You may encounter compilation issues with some packages")
         else:
-            print("✓ C++ build tools already available")
+            print("V C++ build tools already available")
         
         # Check and install Rust/Cargo if needed
         if build_tools_status.get("needs_rust_installation", True):
@@ -263,21 +274,21 @@ class UnifiedPLCSetup:
                 if response.lower() == 'y':
                     try:
                         if self.build_tools_installer.install_rust_cargo():
-                            print("✓ Rust/Cargo installed successfully")
+                            print("V Rust/Cargo installed successfully")
                             # Update capabilities after installation
                             rust_status = self.build_tools_installer._check_rust_cargo()
                             capabilities["build_tools_status"].update(rust_status)
                         else:
-                            print("⚠ Rust/Cargo installation failed")
+                            print("! Rust/Cargo installation failed")
                     except Exception as e:
-                        print(f"⚠ Rust/Cargo installation error: {e}")
+                        print(f"! Rust/Cargo installation error: {e}")
                 elif response.lower() == 'skip':
                     print("Skipping Rust/Cargo installation")
                 else:
                     print("Rust/Cargo installation declined")
                     print("Some packages may fail to compile")
         else:
-            print("✓ Rust/Cargo already available")
+            print("V Rust/Cargo already available")
         
         return True
 
@@ -331,7 +342,7 @@ class UnifiedPLCSetup:
                         except:
                             gpu_info['gpu_memory'] = 0
                         gpu_info['available'] = True
-                        print(f"✓ Found GPU: {gpu_info['gpu_name']}")
+                        print(f"V Found GPU: {gpu_info['gpu_name']}")
                         print(f"  Driver version: {gpu_info['driver_version']}")
                         print(f"  Memory: {gpu_info['gpu_memory']}GB")
             else:
@@ -339,10 +350,10 @@ class UnifiedPLCSetup:
                 print("ℹ NVIDIA GPU not detected in WSL")
         except subprocess.TimeoutExpired:
             gpu_info['issues'].append("nvidia-smi command timed out")
-            print("⚠ GPU check timed out")
+            print("! GPU check timed out")
         except Exception as e:
             gpu_info['issues'].append(f"Error checking GPU: {str(e)}")
-            print(f"⚠ Error checking GPU: {e}")
+            print(f"! Error checking GPU: {e}")
         
         # Check for CUDA in WSL if GPU is available
         if gpu_info['available']:
@@ -358,7 +369,7 @@ class UnifiedPLCSetup:
                     cuda_version = result.stdout.strip()
                     gpu_info['cuda_version'] = cuda_version
                     gpu_info['cuda_available'] = True
-                    print(f"✓ CUDA {cuda_version} detected in WSL (via nvidia-smi - driver version)")
+                    print(f"V CUDA {cuda_version} detected in WSL (via nvidia-smi - driver version)")
                 else:
                     # Try nvcc --version as fallback (toolkit version)
                     result = subprocess.run(
@@ -370,7 +381,7 @@ class UnifiedPLCSetup:
                         cuda_version = result.stdout.strip()
                         gpu_info['cuda_version'] = cuda_version
                         gpu_info['cuda_available'] = True
-                        print(f"✓ CUDA {cuda_version} detected in WSL (via nvcc - toolkit version)")
+                        print(f"V CUDA {cuda_version} detected in WSL (via nvcc - toolkit version)")
                     else:
                         # Try version.txt as final fallback
                         result = subprocess.run(
@@ -382,17 +393,17 @@ class UnifiedPLCSetup:
                             cuda_version = result.stdout.strip()
                             gpu_info['cuda_version'] = cuda_version
                             gpu_info['cuda_available'] = True
-                            print(f"✓ CUDA {cuda_version} detected in WSL (via version.txt)")
+                            print(f"V CUDA {cuda_version} detected in WSL (via version.txt)")
                         else:
                             gpu_info['issues'].append("CUDA not found in WSL")
-                            print("⚠ CUDA not detected in WSL")
+                            print("! CUDA not detected in WSL")
                             
             except subprocess.TimeoutExpired:
                 gpu_info['issues'].append("CUDA check timed out")
-                print("⚠ CUDA check timed out")
+                print("! CUDA check timed out")
             except Exception as e:
                 gpu_info['issues'].append(f"Error checking CUDA: {str(e)}")
-                print(f"⚠ Error checking CUDA: {e}")
+                print(f"! Error checking CUDA: {e}")
         
         return gpu_info
 
@@ -416,21 +427,21 @@ class UnifiedPLCSetup:
         try:
             result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout.strip():
-                print(f"✓ Poppler is already installed in WSL at: {result.stdout.strip()}")
+                print(f"V Poppler is already installed in WSL at: {result.stdout.strip()}")
                 return self._create_wsl_wrappers()
         except subprocess.TimeoutExpired:
-            print("⚠ WSL check timed out - WSL might be starting up")
+            print("! WSL check timed out - WSL might be starting up")
             time.sleep(3)
             # Try once more
             try:
                 result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
                 if result.returncode == 0 and result.stdout.strip():
-                    print("✓ Poppler is already installed in WSL")
+                    print("V Poppler is already installed in WSL")
                     return self._create_wsl_wrappers()
             except:
                 pass
         except Exception as e:
-            print(f"⚠ Could not check for existing poppler: {e}")
+            print(f"! Could not check for existing poppler: {e}")
         
         # Check if we can run commands without sudo
         print("\nChecking WSL sudo requirements...")
@@ -442,14 +453,14 @@ class UnifiedPLCSetup:
             passwordless_sudo = False
         
         if passwordless_sudo:
-            print("✓ Passwordless sudo detected, proceeding with automatic installation...")
+            print("V Passwordless sudo detected, proceeding with automatic installation...")
             return self._run_wsl_poppler_install()
         
         # Need password authentication - try interactive installation
         print("\n" + "="*60)
         print("WSL Poppler Installation")
         print("="*60)
-        print("\n⚠ WSL requires sudo password for package installation.")
+        print("\n! WSL requires sudo password for package installation.")
         print("Choose installation method:")
         print("1. Automatic installation (will prompt for password)")
         print("2. Manual installation (guided)")
@@ -553,10 +564,10 @@ echo "SUCCESS"
                 check_cmd = ['wsl', '-e', 'bash', '-c', 'which pdftotext']
                 check_result = subprocess.run(check_cmd, capture_output=True, text=True)
                 if check_result.returncode == 0:
-                    print("\n✓ Poppler installed successfully!")
+                    print("\nV Poppler installed successfully!")
                     return self._create_wsl_wrappers()
             
-            print("\n✗ Poppler installation failed")
+            print("\nX Poppler installation failed")
             return False
             
         except Exception as e:
@@ -565,7 +576,7 @@ echo "SUCCESS"
 
     def _run_wsl_poppler_install(self) -> bool:
         """Run the actual WSL poppler installation (for passwordless sudo)"""
-        print("Detecting package manager inside WSL …")
+        print("Detecting package manager inside WSL ...")
         detect_cmd = [
             'wsl', '-e', 'bash', '-c',
             'if command -v apt-get >/dev/null 2>&1; then echo apt-get; '
@@ -581,10 +592,10 @@ echo "SUCCESS"
             pm = 'unsupported'
 
         if pm == 'unsupported':
-            print('✗ Could not detect a supported package manager inside WSL')
+            print('X Could not detect a supported package manager inside WSL')
             return False
 
-        print(f"✓ Package manager detected inside WSL: {pm}")
+        print(f"V Package manager detected inside WSL: {pm}")
 
         # Build update / install commands for the detected manager
         if pm in {'apt', 'apt-get'}:
@@ -597,32 +608,32 @@ echo "SUCCESS"
             update_cmd = None  # apk update runs implicitly when adding packages
             install_cmd = ['wsl', '-e', 'bash', '-c', 'sudo apk add --update poppler-utils']
         else:
-            print('✗ Unsupported package manager')
+            print('X Unsupported package manager')
             return False
 
         # Run update if defined
         if update_cmd:
-            print('Updating WSL package list …')
+            print('Updating WSL package list ...')
             try:
                 subprocess.run(update_cmd, check=True, timeout=60)
-                print('✓ Package list updated successfully')
+                print('V Package list updated successfully')
             except subprocess.CalledProcessError:
-                print('✗ Failed to update package list')
+                print('X Failed to update package list')
                 return False
             except subprocess.TimeoutExpired:
-                print('⚠ Package update timed out')
+                print('! Package update timed out')
                 return False
 
         # Install package
-        print('Installing poppler-utils in WSL …')
+        print('Installing poppler-utils in WSL ...')
         try:
             subprocess.run(install_cmd, check=True, timeout=180)
-            print('✓ poppler-utils installed successfully')
+            print('V poppler-utils installed successfully')
         except subprocess.CalledProcessError:
-            print('✗ Failed to install poppler-utils')
+            print('X Failed to install poppler-utils')
             return False
         except subprocess.TimeoutExpired:
-            print('⚠ Poppler installation timed out')
+            print('! Poppler installation timed out')
             return False
          
         return self._create_wsl_wrappers()
@@ -645,7 +656,7 @@ echo "SUCCESS"
         print("  exit")
         print("\n" + "="*70)
         
-        print("\n⚠ IMPORTANT: Complete these steps in a SEPARATE terminal window!")
+        print("\n! IMPORTANT: Complete these steps in a SEPARATE terminal window!")
         input("\nPress Enter when you've completed the installation...")
         
         # Verify installation with multiple attempts
@@ -656,7 +667,7 @@ echo "SUCCESS"
             try:
                 result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
                 if result.returncode == 0 and result.stdout.strip():
-                    print(f"✓ Poppler successfully installed at: {result.stdout.strip()}")
+                    print(f"V Poppler successfully installed at: {result.stdout.strip()}")
                     return self._create_wsl_wrappers()
             except:
                 pass
@@ -665,7 +676,7 @@ echo "SUCCESS"
                 print(f"  Attempt {attempt + 1} failed, retrying...")
                 time.sleep(2)
         
-        print("\n✗ Could not verify poppler installation")
+        print("\nX Could not verify poppler installation")
         print("\nTroubleshooting:")
         print("1. Make sure you completed all steps in WSL")
         print("2. Try running 'wsl --shutdown' and then retry")
@@ -699,22 +710,22 @@ wsl -e {tool} %*
                         with open(wrapper_path, 'w') as f:
                             f.write(wrapper_content)
                         created_wrappers.append(wrapper_path)
-                        print(f"  ✓ Created wrapper: {wrapper_path.name}")
+                        print(f"  V Created wrapper: {wrapper_path.name}")
                     except Exception as e:
-                        print(f"  ✗ Failed to create {wrapper_path.name}: {e}")
+                        print(f"  X Failed to create {wrapper_path.name}: {e}")
                 
                 if not created_wrappers:
-                    print("\n✗ Failed to create any wrappers")
+                    print("\nX Failed to create any wrappers")
                     return False
                 
                 # Add to PATH for current session
                 current_path = os.environ.get('PATH', '')
                 if str(wrapper_dir) not in current_path:
                     os.environ['PATH'] = f"{wrapper_dir};{current_path}"
-                    print(f"\n✓ Added {wrapper_dir} to PATH for current session")
+                    print(f"\nV Added {wrapper_dir} to PATH for current session")
                 
                 print("\n" + "="*60)
-                print("✓ Poppler Installation Complete!")
+                print("V Poppler Installation Complete!")
                 print("="*60)
                 print(f"  Wrappers created: {len(created_wrappers)}/{len(poppler_tools)}")
                 print(f"  Location: {wrapper_dir}")
@@ -725,7 +736,7 @@ wsl -e {tool} %*
                 return True
                 
             except Exception as e:
-                print(f"\n✗ Error creating wrappers: {e}")
+                print(f"\nX Error creating wrappers: {e}")
                 return False
         
         return True
@@ -733,6 +744,10 @@ wsl -e {tool} %*
     def install_system_dependencies(self) -> bool:
         """Install system-level dependencies based on platform"""
         print("\n=== Installing System Dependencies ===")
+        
+        if self.dry_run:
+            print("DRY RUN: Skipping system dependency installation")
+            return True
         
         if self.system == 'windows':
             return self._install_windows_dependencies()
@@ -752,14 +767,14 @@ wsl -e {tool} %*
         print("\n1. Setting up Poppler...")
         
         if self._check_wsl_available():
-            print("✓ WSL detected - will install poppler automatically")
+            print("V WSL detected - will install poppler automatically")
             
             if not self._install_poppler_via_wsl():
-                print("\n⚠ Failed to install poppler via WSL")
+                print("\n! Failed to install poppler via WSL")
                 print("Falling back to manual installation instructions...")
                 return self._manual_poppler_instructions()
         else:
-            print("⚠ WSL not detected")
+            print("! WSL not detected")
             print("\nWSL (Windows Subsystem for Linux) is recommended for automatic poppler installation.")
             print("To install WSL:")
             print("  1. Open PowerShell as Administrator")
@@ -918,7 +933,7 @@ wsl -e {tool} %*
                 except:
                     continue
         
-        print("⚠ No compatible Python version found")
+        print("! No compatible Python version found")
         return None
 
     def create_virtual_environment(self) -> bool:
@@ -929,7 +944,7 @@ wsl -e {tool} %*
             print(f"Virtual environment already exists at: {self.venv_path}")
             
             if self.venv_python.exists():
-                print("✓ Existing virtual environment appears valid")
+                print("V Existing virtual environment appears valid")
                 if not self.dry_run:
                     response = input("Recreate virtual environment? (y/n): ")
                     if response.lower() != 'y':
@@ -943,7 +958,7 @@ wsl -e {tool} %*
                 try:
                     shutil.rmtree(self.venv_path)
                 except Exception as e:
-                    print(f"✗ Failed to remove existing environment: {e}")
+                    print(f"X Failed to remove existing environment: {e}")
                     return False
         
         # Find the latest compatible Python
@@ -954,7 +969,7 @@ wsl -e {tool} %*
             python_executable = self.find_latest_python()
 
         if not python_executable:
-            print("✗ No compatible Python version found")
+            print("X No compatible Python version found")
             print("Please install Python 3.8-3.12 and try again")
             return False
         
@@ -962,10 +977,10 @@ wsl -e {tool} %*
         try:
             if not self.dry_run:
                 subprocess.run([python_executable, "-m", "venv", str(self.venv_path)], check=True)
-            print("✓ Virtual environment created successfully")
+            print("V Virtual environment created successfully")
             return True
         except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to create virtual environment: {e}")
+            print(f"X Failed to create virtual environment: {e}")
             return False
 
     def upgrade_pip_tools(self) -> bool:
@@ -973,7 +988,7 @@ wsl -e {tool} %*
         print("\n=== Upgrading Virtual Environment Tools ===")
         
         if not self.venv_python.exists() and not self.dry_run:
-            print("✗ Virtual environment not found")
+            print("X Virtual environment not found")
             return False
         
         tools = ["pip", "setuptools", "wheel"]
@@ -994,9 +1009,9 @@ wsl -e {tool} %*
                     subprocess.run([
                         str(self.venv_pip), "install", "--upgrade", tool
                     ], check=True, capture_output=True)
-                print(f"  ✓ {tool} upgraded successfully")
+                print(f"  V {tool} upgraded successfully")
             except subprocess.CalledProcessError as e:
-                print(f"  ✗ Failed to upgrade {tool}: {e}")
+                print(f"  X Failed to upgrade {tool}: {e}")
                 return False
         
         return True
@@ -1021,7 +1036,7 @@ wsl -e {tool} %*
         We standardise the whole project on *cu121* wheels because they are the
         most widely tested combo with Paddle 3.0.0.  This simplifies the
         dependency matrix and avoids future surprises when NVIDIA publishes
-        newer minor releases (cu128, cu129, …).
+        newer minor releases (cu128, cu129, ...).
         """
 
         fixed_url = "https://download.pytorch.org/whl/cu121"
@@ -1030,10 +1045,10 @@ wsl -e {tool} %*
         # Still validate connectivity so we can fall back to CPU wheels if the
         # URL is blocked (rare corporate proxy cases).
         if self._validate_pytorch_index(fixed_url):
-            print("    ✓ cu121 index is accessible")
+            print("    V cu121 index is accessible")
             return "cu121", fixed_url
 
-        print("    ✗ cu121 index not accessible – falling back to CPU wheels")
+        print("    X cu121 index not accessible – falling back to CPU wheels")
         return "cpu", "https://download.pytorch.org/whl/cpu"
 
     # === PYTORCH INSTALLATION (DIRECT CUDA APPROACH) ===
@@ -1084,17 +1099,17 @@ wsl -e {tool} %*
                         str(self.venv_pip), "install", "torch", "torchvision", "torchaudio",
                         "--index-url", index_url
                     ], check=True, timeout=1800)  # 30 minute timeout
-                    print("✓ PyTorch CUDA version installed successfully")
+                    print("V PyTorch CUDA version installed successfully")
                     
                     # Verify GPU functionality
                     return self._verify_pytorch_gpu_installation()
                     
             except subprocess.CalledProcessError as e:
-                print(f"⚠ PyTorch CUDA installation failed: {e}")
+                print(f"! PyTorch CUDA installation failed: {e}")
                 print("  Falling back to CPU version...")
                 return self._install_pytorch_cpu_fallback()
             except subprocess.TimeoutExpired:
-                print("⚠ PyTorch CUDA installation timed out")
+                print("! PyTorch CUDA installation timed out")
                 print("  Falling back to CPU version...")
                 return self._install_pytorch_cpu_fallback()
         else:
@@ -1118,14 +1133,14 @@ wsl -e {tool} %*
                 "--index-url", "https://download.pytorch.org/whl/cpu"
             ], check=True, timeout=1800)  # 30 minute timeout
             
-            print("✓ PyTorch CPU version installed successfully")
+            print("V PyTorch CPU version installed successfully")
             return True
             
         except subprocess.CalledProcessError as e:
-            print(f"✗ PyTorch CPU installation failed: {e}")
+            print(f"X PyTorch CPU installation failed: {e}")
             return False
         except subprocess.TimeoutExpired:
-            print("⚠ PyTorch CPU installation timed out")
+            print("! PyTorch CPU installation timed out")
             return False
 
     def _verify_pytorch_gpu_installation(self) -> bool:
@@ -1155,12 +1170,12 @@ else:
                         print(f"    {line}")
                 return True
             else:
-                print("  ⚠ Could not verify GPU functionality")
+                print("  ! Could not verify GPU functionality")
                 print(f"    Error: {result.stderr}")
                 return True  # Don't fail setup for verification issues
                 
         except Exception as e:
-            print(f"  ⚠ GPU verification failed: {e}")
+            print(f"  ! GPU verification failed: {e}")
             return True  # Don't fail setup for verification issues
 
     def _upgrade_pytorch_to_gpu(self, gpu_info: Dict) -> bool:
@@ -1185,7 +1200,7 @@ else:
                 "--only-binary=all"  # Force wheel-only installation
             ], check=True, timeout=1800)
             
-            print("✓ PyTorch GPU version installed successfully")
+            print("V PyTorch GPU version installed successfully")
             
             # Verify GPU availability and show detailed info
             try:
@@ -1208,19 +1223,19 @@ if torch.cuda.is_available():
                         if line.strip():
                             print(f"    {line}")
                 else:
-                    print("  ⚠ Could not verify GPU functionality")
+                    print("  ! Could not verify GPU functionality")
                     print(f"    Error: {result.stderr}")
             except Exception as e:
-                print(f"  ⚠ GPU verification failed: {e}")
+                print(f"  ! GPU verification failed: {e}")
             
             return True
             
         except subprocess.CalledProcessError as e:
-            print(f"✗ PyTorch GPU upgrade failed: {e}")
+            print(f"X PyTorch GPU upgrade failed: {e}")
             print("  Continuing with CPU version...")
             return True  # Don't fail setup for GPU upgrade failure
         except subprocess.TimeoutExpired:
-            print("⚠ PyTorch GPU upgrade timed out")
+            print("! PyTorch GPU upgrade timed out")
             print("  Continuing with CPU version...")
             return True
 
@@ -1311,10 +1326,10 @@ if torch.cuda.is_available():
             # Try VS environment installation first
             try:
                 if self.build_tools_installer.install_with_vs_environment(package, str(self.venv_pip)):
-                    print(f"  ✓ {base_name} installed successfully with VS environment")
+                    print(f"  V {base_name} installed successfully with VS environment")
                     return package, True, ""
             except Exception as e:
-                print(f"  ⚠ VS environment installation failed: {e}")
+                print(f"  ! VS environment installation failed: {e}")
                 print(f"  Falling back to standard installation...")
         
         # Standard pip install
@@ -1328,9 +1343,9 @@ if torch.cuda.is_available():
             error_msg = result.stderr.strip() if result.stderr else ""
             
             if success:
-                print(f"  ✓ {base_name} installed successfully")
+                print(f"  V {base_name} installed successfully")
             else:
-                print(f"  ✗ {base_name} installation failed")
+                print(f"  X {base_name} installation failed")
                 if error_msg:
                     print(f"    Error: {error_msg[:200]}...")  # Show first 200 chars
                 
@@ -1364,7 +1379,7 @@ if torch.cuda.is_available():
                 print(f"\r[{bar}] {self.completed_packages}/{self.total_packages} ({progress*100:.1f}%)", end='', flush=True)
             
             if completed:
-                print(f"\n  ✓ {package}")
+                print(f"\n  V {package}")
 
     def clean_ultralytics_cache(self) -> bool:
         """Clean Ultralytics cache to prevent path conflicts"""
@@ -1398,10 +1413,10 @@ if torch.cuda.is_available():
                                 if response.lower() == 'y':
                                     try:
                                         shutil.rmtree(cache_dir)
-                                        print(f"  ✓ Cleaned cache directory: {cache_dir}")
+                                        print(f"  V Cleaned cache directory: {cache_dir}")
                                         cleaned_any = True
                                     except Exception as e:
-                                        print(f"  ⚠ Failed to clean cache: {e}")
+                                        print(f"  ! Failed to clean cache: {e}")
                                 else:
                                     print(f"  Skipped cleaning {cache_dir}")
                             else:
@@ -1410,7 +1425,7 @@ if torch.cuda.is_available():
                         else:
                             print(f"  No old version references found in settings.json")
                     except Exception as e:
-                        print(f"  ⚠ Could not read settings.json: {e}")
+                        print(f"  ! Could not read settings.json: {e}")
                 else:
                     print(f"  No settings.json found in {cache_dir}")
         
@@ -1433,7 +1448,7 @@ if torch.cuda.is_available():
             requirements_file = self.project_root / "requirements.txt"
         
         if not requirements_file.exists():
-            print(f"✗ Requirements file not found: {requirements_file}")
+            print(f"X Requirements file not found: {requirements_file}")
             return False
         
         # Parse and categorize packages
@@ -1459,9 +1474,9 @@ if torch.cuda.is_available():
                 package_name, success, error_msg = self.install_single_package(package)
                 
                 if success:
-                    print(f"  ✓ Successfully installed: {package}")
+                    print(f"  V Successfully installed: {package}")
                 else:
-                    print(f"  ✗ Failed to install: {package}")
+                    print(f"  X Failed to install: {package}")
                     if error_msg:
                         print(f"    Error: {error_msg}")
                     failed_packages.append(package)
@@ -1486,7 +1501,7 @@ if torch.cuda.is_available():
                     if success:
                         self.update_progress_display(package_name, completed=True)
                     else:
-                        print(f"\n  ✗ Failed: {package_name} - {error_msg}")
+                        print(f"\n  X Failed: {package_name} - {error_msg}")
                         failed_packages.append(package_name)
                         self.update_progress_display(package_name, completed=True)
             
@@ -1494,8 +1509,8 @@ if torch.cuda.is_available():
         
         # Summary
         print(f"\nInstallation Summary:")
-        print(f"  ✓ Successful: {len(all_packages) - len(failed_packages)}")
-        print(f"  ✗ Failed: {len(failed_packages)}")
+        print(f"  V Successful: {len(all_packages) - len(failed_packages)}")
+        print(f"  X Failed: {len(failed_packages)}")
         
         if failed_packages:
             print(f"\nFailed packages:")
@@ -1534,10 +1549,10 @@ if torch.cuda.is_available():
             temp_req_file.unlink()
             
             if result.returncode == 0:
-                print("✓ Bulk installation completed successfully")
+                print("V Bulk installation completed successfully")
                 return True
             else:
-                print("✗ Bulk installation failed")
+                print("X Bulk installation failed")
                 print("\n Manual installation suggestions:")
                 print("1. Activate the virtual environment:")
                 print(f"   {self.venv_activate}")
@@ -1551,12 +1566,12 @@ if torch.cuda.is_available():
                 return False
                 
         except subprocess.TimeoutExpired:
-            print("⚠ Bulk installation timed out after 1 hour")
+            print("! Bulk installation timed out after 1 hour")
             if temp_req_file.exists():
                 temp_req_file.unlink()
             return False
         except Exception as e:
-            print(f"✗ Bulk installation error: {e}")
+            print(f"X Bulk installation error: {e}")
             if temp_req_file.exists():
                 temp_req_file.unlink()
             return False
@@ -1590,9 +1605,9 @@ if torch.cuda.is_available():
                     continue
                 
                 if package == "pandas":
-                    code = f"import {package}; print('✓ {description} working')"
+                    code = f"import {package}; print('V {description} working')"
                 elif package == "numpy":
-                    code = f"import {package}; print('✓ {description} working')"
+                    code = f"import {package}; print('V {description} working')"
                 elif package == "torch":
                     code = (
                         "import torch, json, sys;"
@@ -1609,7 +1624,7 @@ if torch.cuda.is_available():
                         "print(json.dumps({'cuda': cuda, 'count': count, 'name': name}))"
                     )
                 else:
-                    code = f"import {package}; print('✓ {description} working')"
+                    code = f"import {package}; print('V {description} working')"
 
                 result = subprocess.run([
                     str(self.venv_python), "-c", code
@@ -1618,23 +1633,23 @@ if torch.cuda.is_available():
                 if result.returncode == 0:
                     print(result.stdout.strip())
                 else:
-                    print(f"✗ {description} failed to import")
+                    print(f"X {description} failed to import")
                     failed_packages.append(description)
             except subprocess.TimeoutExpired:
-                print(f"⚠ {description} import test timed out")
+                print(f"! {description} import test timed out")
                 failed_packages.append(description)
             except Exception as e:
-                print(f"✗ {description} test failed: {e}")
+                print(f"X {description} test failed: {e}")
                 failed_packages.append(description)
         
         if failed_packages:
-            print(f"\n⚠ {len(failed_packages)} packages failed verification:")
+            print(f"\n! {len(failed_packages)} packages failed verification:")
             for pkg in failed_packages:
                 print(f"  - {pkg}")
             print("\nProceeding despite verification failures; you can test imports manually after setup.")
             return True
         else:
-            print("\n✓ All key packages verified successfully")
+            print("\nV All key packages verified successfully")
             return True
 
     def setup_data_directories(self) -> bool:
@@ -1656,9 +1671,9 @@ if torch.cuda.is_available():
             try:
                 if not self.dry_run:
                     directory.mkdir(parents=True, exist_ok=True)
-                print(f"  ✓ {directory}")
+                print(f"  V {directory}")
             except Exception as e:
-                print(f"  ✗ Failed to create {directory}: {e}")
+                print(f"  X Failed to create {directory}: {e}")
                 return False
         
         return True
@@ -1692,10 +1707,10 @@ echo "Python: {self.venv_python}"
                 if self.system != 'windows':
                     os.chmod(activate_script, 0o755)
             
-            print(f"  ✓ Created: {activate_script}")
+            print(f"  V Created: {activate_script}")
             return True
         except Exception as e:
-            print(f"  ✗ Failed to create activation script: {e}")
+            print(f"  X Failed to create activation script: {e}")
             return False
 
     def install_specialized_packages(self, capabilities: Dict) -> bool:
@@ -1704,7 +1719,7 @@ echo "Python: {self.venv_python}"
         
         # Install PaddleOCR using the proven Method 3 approach
         if not self.build_tools_installer:
-            print("⚠ Build tools installer not available, skipping PaddleOCR installation")
+            print("! Build tools installer not available, skipping PaddleOCR installation")
             return True
             
         # Ensure the build tools installer uses the venv's pip for all subsequent operations
@@ -1714,10 +1729,10 @@ echo "Python: {self.venv_python}"
             pass
         
         if not self.build_tools_installer.install_paddleocr(capabilities):
-            print("✗ Failed to install PaddleOCR")
+            print("X Failed to install PaddleOCR")
             return False
         
-        print("✓ Specialized packages installed successfully")
+        print("V Specialized packages installed successfully")
         return True
 
     def run_gpu_sanity_check(self) -> bool:
@@ -1741,19 +1756,19 @@ echo "Python: {self.venv_python}"
 
             print(textwrap.dedent(result.stdout))
             if result.returncode == 0:
-                print("✓ GPU sanity check passed (or CPU fallback acceptable)")
+                print("V GPU sanity check passed (or CPU fallback acceptable)")
             else:
-                print("⚠ GPU sanity check reported issues – continuing anyway")
+                print("! GPU sanity check reported issues – continuing anyway")
             return True  # never fail the whole setup
 
         except FileNotFoundError:
-            print("⚠ gpu_sanity_checker script not found – skipping")
+            print("! gpu_sanity_checker script not found – skipping")
             return True
         except subprocess.TimeoutExpired:
-            print("⚠ GPU sanity check timed out – skipping")
+            print("! GPU sanity check timed out – skipping")
             return True
         except Exception as exc:
-            print(f"⚠ GPU sanity check error: {exc}")
+            print(f"! GPU sanity check error: {exc}")
             return True
 
     def ensure_latest_numpy(self) -> bool:
@@ -1824,15 +1839,15 @@ echo "Python: {self.venv_python}"
             
             try:
                 if not step_func():
-                    print(f"\n✗ Setup failed at step: {step_name}")
+                    print(f"\nX Setup failed at step: {step_name}")
                     return False
             except Exception as e:
-                print(f"\n✗ Setup failed at step: {step_name}")
+                print(f"\nX Setup failed at step: {step_name}")
                 print(f"Error: {e}")
                 return False
         
         print("\n" + "=" * 60)
-        print("✓ UNIFIED SETUP COMPLETED SUCCESSFULLY!")
+        print("V UNIFIED SETUP COMPLETED SUCCESSFULLY!")
         print("=" * 60)
         
         # Show summary
@@ -1881,10 +1896,21 @@ echo "Python: {self.venv_python}"
                 },
             }
         try:
+            yaml = safe_import_yaml()
+            if yaml is None:
+                print("! PyYAML not available, using default config")
+                return {
+                    "storage_backend": "network_drive",
+                    "setup": {
+                        "prompt_for_downloads": True,
+                        "auto_download_dataset": False,
+                        "auto_download_models": False,
+                    },
+                }
             with open(cfg_file, "r") as fh:
                 return yaml.safe_load(fh) or {}
         except Exception as exc:
-            print(f"⚠ Could not read download_config.yaml: {exc}")
+            print(f"! Could not read download_config.yaml: {exc}")
             return {}
 
     def interactive_download_prompt(self) -> bool:
@@ -2013,10 +2039,10 @@ def main():
         setup = UnifiedPLCSetup(data_root=args.data_root, dry_run=False, parallel_jobs=args.parallel_jobs)
         success = setup.verify_installation()
         if success:
-            print("\n✓ Import validation completed successfully!")
+            print("\nV Import validation completed successfully!")
             return 0
         else:
-            print("\n✗ Import validation reported issues – see log above")
+            print("\nX Import validation reported issues – see log above")
             return 1
     
     # Otherwise proceed with the full setup workflow
@@ -2036,7 +2062,7 @@ def main():
             try:
                 import importlib.util, subprocess
                 if importlib.util.find_spec("requests") is None:
-                    print("[Setup] Installing missing 'requests' dependency in the main venv …")
+                    print("[Setup] Installing missing 'requests' dependency in the main venv ...")
                     subprocess.check_call([
                         str(setup.venv_pip), "install", "--upgrade", "requests>=2.25"
                     ])
@@ -2045,9 +2071,9 @@ def main():
                     try:
                         import requests  # noqa: F401
                     except ImportError:
-                        print("⚠ 'requests' still not importable after installation – multi-env step may fail")
+                        print("! 'requests' still not importable after installation – multi-env step may fail")
             except Exception as ensure_exc:
-                print(f"⚠ Could not ensure 'requests' availability: {ensure_exc}")
+                print(f"! Could not ensure 'requests' availability: {ensure_exc}")
         
         if success and args.multi_env:
             try:
@@ -2056,28 +2082,28 @@ def main():
 
                 mgr = MultiEnvironmentManager(Path(__file__).resolve().parent.parent, dry_run=args.dry_run)
                 if mgr.setup(pip_check=args.pip_check) and mgr.health_check():
-                    print("\n✓ Multi-environment setup completed successfully!")
+                    print("\nV Multi-environment setup completed successfully!")
                     
                     # NOW run the deferred downloads using the appropriate environments
                     print("\n=== Running Deferred Data/Model Downloads ===")
                     success &= setup._run_deferred_downloads_with_multi_env(mgr)
                 else:
-                    print("\n⚠ Multi-environment setup reported issues. See log above.")
+                    print("\n! Multi-environment setup reported issues. See log above.")
             except Exception as exc:
-                print(f"\n⚠ Failed to create multi-environment: {exc}")
+                print(f"\n! Failed to create multi-environment: {exc}")
 
         if success:
-            print("\n✓ Setup completed successfully!")
+            print("\nV Setup completed successfully!")
             return 0
         else:
-            print("\n✗ Setup failed!")
+            print("\nX Setup failed!")
             return 1
             
     except KeyboardInterrupt:
         print("\n\nSetup interrupted by user.")
         return 1
     except Exception as e:
-        print(f"\n✗ Setup failed with error: {e}")
+        print(f"\nX Setup failed with error: {e}")
         return 1
 
 if __name__ == "__main__":

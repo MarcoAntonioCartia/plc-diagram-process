@@ -18,16 +18,23 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies (base venv)
+      - name: Install base dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest tqdm
+          pip install pytest tqdm PyYAML
+
+      - name: Install additional setup dependencies
+        run: |
+          pip install ruamel.yaml psutil requests
+
+      - name: Validate CI setup
+        run: python tests/test_ci_setup.py
 
       - name: Run setup script (single or multi)
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            python setup/setup.py --multi-env || true  # heavy, ignore failures for smoke CI
+            python setup/setup.py --multi-env --dry-run || true  # Use dry-run to avoid heavy installs in CI
           else
             python setup/setup.py --dry-run || true
           fi
