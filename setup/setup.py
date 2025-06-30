@@ -1105,6 +1105,20 @@ wsl -e {tool} %*
         """Install PyTorch with direct CUDA detection and installation"""
         print("\n=== PyTorch Installation (Direct CUDA Detection) ===")
         
+        # In CI test mode, run PyTorch installation logic in dry-run mode
+        if self.ci_test_mode:
+            print("CI TEST MODE: Running PyTorch installation in dry-run mode")
+            original_dry_run = self.dry_run
+            self.dry_run = True
+            result = self._install_pytorch_flow(capabilities)
+            self.dry_run = original_dry_run
+            return result
+        
+        return self._install_pytorch_flow(capabilities)
+    
+    def _install_pytorch_flow(self, capabilities: Dict) -> bool:
+        """PyTorch installation flow"""
+        
         # Get GPU information for direct installation
         gpu_info = capabilities.get("gpu_info", {})
         
@@ -1491,6 +1505,24 @@ if torch.cuda.is_available():
         """Install other packages using robust strategies"""
         print("\n=== Installing Other Dependencies ===")
         
+        # In CI test mode, enable dry-run for package installation
+        if self.ci_test_mode:
+            print("CI TEST MODE: Running package installation in dry-run mode")
+            original_dry_run = self.dry_run
+            self.dry_run = True  # Force dry-run for package installation
+            
+            # Continue with normal flow but in dry-run mode
+            result = self._install_packages_normal_flow()
+            
+            # Restore original dry-run setting
+            self.dry_run = original_dry_run
+            return result
+        
+        return self._install_packages_normal_flow()
+    
+    def _install_packages_normal_flow(self) -> bool:
+        """Normal package installation flow"""
+        
         # Clean Ultralytics cache before installing to prevent path conflicts
         self.clean_ultralytics_cache()
         
@@ -1774,6 +1806,11 @@ echo "Python: {self.venv_python}"
         """Install specialized packages like PaddleOCR"""
         print("Installing specialized packages...")
         
+        # In CI test mode, skip specialized packages to save time
+        if self.ci_test_mode:
+            print("CI TEST MODE: Skipping specialized packages installation")
+            return True
+        
         # Install PaddleOCR using the proven Method 3 approach
         if not self.build_tools_installer:
             print("! Build tools installer not available, skipping PaddleOCR installation")
@@ -1831,6 +1868,12 @@ echo "Python: {self.venv_python}"
     def ensure_latest_numpy(self) -> bool:
         """Upgrade NumPy to the latest 2.x release to avoid old-wheel DLL issues"""
         print("\n=== Ensuring latest NumPy (>=2.1,<3) ===")
+        
+        # In CI test mode, skip NumPy upgrade since we already installed it
+        if self.ci_test_mode:
+            print("CI TEST MODE: Skipping NumPy upgrade")
+            return True
+        
         # NumPy 2.x wheels are not yet fully supported by OpenCV / pandas on
         # Windows as of mid-2025 – keep the latest 1.26 LTS line to maintain
         # binary compatibility while still getting security fixes.

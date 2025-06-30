@@ -30,11 +30,15 @@ jobs:
       - name: Validate CI setup (fast syntax check)
         run: python tests/test_ci_setup.py
 
+      - name: Install test dependencies for pytest
+        run: |
+          pip install numpy>=1.23,<2.0 pandas>=1.5.0
+
       - name: Test multi-environment setup (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           python setup/setup.py --multi-env --ci-test
-        timeout-minutes: 15
+        timeout-minutes: 3
 
       - name: Validate multi-environment imports (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
