@@ -377,6 +377,8 @@ class MultiEnvironmentManager:
                         timeout=TIMEOUT_SEC,
                         capture_output=True,
                         text=True,
+                        encoding='utf-8',
+                        errors='replace'  # Replace problematic characters instead of crashing
                     )
 
                     if completed.returncode != 0:

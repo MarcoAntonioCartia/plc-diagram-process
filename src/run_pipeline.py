@@ -121,6 +121,47 @@ Examples:
         help="Force single environment mode"
     )
     
+    # Training options
+    parser.add_argument(
+        "--model", 
+        type=str,
+        help="YOLO model to use (e.g., yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt)"
+    )
+    parser.add_argument(
+        "--epochs", 
+        type=int,
+        help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--batch-size", 
+        type=int,
+        help="Training batch size"
+    )
+    
+    # Detection options
+    parser.add_argument(
+        "--detection-conf", 
+        type=float,
+        help="Detection confidence threshold (0.0-1.0)"
+    )
+    parser.add_argument(
+        "--detection-threshold", 
+        type=float,
+        help="Alias for detection confidence threshold"
+    )
+    
+    # OCR options
+    parser.add_argument(
+        "--ocr-conf", 
+        type=float,
+        help="OCR confidence threshold (0.0-1.0)"
+    )
+    parser.add_argument(
+        "--ocr-threshold", 
+        type=float,
+        help="Alias for OCR confidence threshold"
+    )
+    
     # Output options
     parser.add_argument(
         "--verbose", "-v", 
@@ -252,6 +293,24 @@ def main():
         # Override config with command line arguments
         if args.data_root:
             config['data_root'] = args.data_root
+        
+        # Add stage-specific configurations from command line arguments
+        if hasattr(args, 'model') and args.model:
+            config.setdefault('training', {})['model'] = args.model
+        if hasattr(args, 'epochs') and args.epochs:
+            config.setdefault('training', {})['epochs'] = args.epochs
+        if hasattr(args, 'batch_size') and args.batch_size:
+            config.setdefault('training', {})['batch_size'] = args.batch_size
+        
+        # Detection configuration
+        detection_conf = args.detection_conf or args.detection_threshold
+        if detection_conf:
+            config.setdefault('detection', {})['confidence_threshold'] = detection_conf
+        
+        # OCR configuration
+        ocr_conf = args.ocr_conf or args.ocr_threshold
+        if ocr_conf:
+            config.setdefault('ocr', {})['confidence_threshold'] = ocr_conf
         
         # Handle different actions
         if args.status:
