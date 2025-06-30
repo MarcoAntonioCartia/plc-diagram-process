@@ -785,6 +785,14 @@ wsl -e {tool} %*
         print("Installing CI-specific dependencies...")
         
         if self.system == 'linux':
+            # For CI test mode, skip actual installation to save time
+            if self.ci_test_mode:
+                print("CI TEST MODE: Skipping actual system dependency installation")
+                print("  DRY RUN: Would update package list")
+                print("  DRY RUN: Would install build tools")
+                print("  DRY RUN: Would install Poppler")
+                return True
+            
             # Install only essential packages for CI
             commands = [
                 (['sudo', 'apt', 'update'], "Updating package list"),
