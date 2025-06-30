@@ -225,17 +225,17 @@ class PLCSetup:
                         gpu_info['gpu_name'] = parts[0].strip()
                         gpu_info['driver_version'] = parts[1].strip()
                         gpu_info['available'] = True
-                        print(f"✓ Found GPU: {gpu_info['gpu_name']}")
+                        print(f"V Found GPU: {gpu_info['gpu_name']}")
                         print(f"  Driver version: {gpu_info['driver_version']}")
             else:
                 gpu_info['issues'].append("nvidia-smi not found in WSL")
-                print("✗ NVIDIA GPU not detected in WSL")
+                print("X NVIDIA GPU not detected in WSL")
         except subprocess.TimeoutExpired:
             gpu_info['issues'].append("nvidia-smi command timed out")
-            print("✗ GPU check timed out")
+            print("X GPU check timed out")
         except Exception as e:
             gpu_info['issues'].append(f"Error checking GPU: {str(e)}")
-            print(f"✗ Error checking GPU: {e}")
+            print(f"X Error checking GPU: {e}")
         
         # Check for CUDA in WSL
         if gpu_info['nvidia_smi']:
@@ -249,7 +249,7 @@ class PLCSetup:
                 if result.returncode == 0 and result.stdout.strip():
                     gpu_info['cuda_version'] = result.stdout.strip()
                     gpu_info['cuda_available'] = True
-                    print(f"✓ CUDA version: {gpu_info['cuda_version']}")
+                    print(f"V CUDA version: {gpu_info['cuda_version']}")
                 else:
                     # Try alternative method
                     result = subprocess.run(
@@ -259,23 +259,23 @@ class PLCSetup:
                     if result.returncode == 0 and result.stdout.strip():
                         gpu_info['cuda_version'] = result.stdout.strip()
                         gpu_info['cuda_available'] = True
-                        print(f"✓ CUDA version (from nvidia-smi): {gpu_info['cuda_version']}")
+                        print(f"V CUDA version (from nvidia-smi): {gpu_info['cuda_version']}")
                     else:
                         gpu_info['issues'].append("CUDA not found in WSL")
-                        print("⚠ CUDA not detected in WSL (training will use CPU)")
+                        print("! CUDA not detected in WSL (training will use CPU)")
             except Exception as e:
                 gpu_info['issues'].append(f"Error checking CUDA: {str(e)}")
-                print(f"⚠ Could not check CUDA: {e}")
+                print(f"! Could not check CUDA: {e}")
         
         # Provide recommendations based on findings
         print("\n" + "="*60)
         if gpu_info['available'] and gpu_info['cuda_available']:
-            print("✓ GPU READY: Your WSL environment is configured for GPU training!")
+            print("V GPU READY: Your WSL environment is configured for GPU training!")
             print(f"  GPU: {gpu_info['gpu_name']}")
             print(f"  Driver: {gpu_info['driver_version']}")
             print(f"  CUDA: {gpu_info['cuda_version']}")
         elif gpu_info['available'] and not gpu_info['cuda_available']:
-            print("⚠ GPU PARTIAL: GPU detected but CUDA not found")
+            print("! GPU PARTIAL: GPU detected but CUDA not found")
             print("\nTo enable GPU training:")
             print("1. Install CUDA toolkit in WSL:")
             print("   wsl")
@@ -283,7 +283,7 @@ class PLCSetup:
             print("   sudo apt-get install -y cuda-toolkit-11-8")
             print("2. Restart WSL and run setup again")
         else:
-            print("✗ GPU NOT AVAILABLE: Training will use CPU (slower)")
+            print("X GPU NOT AVAILABLE: Training will use CPU (slower)")
             print("\nTo enable GPU support:")
             print("1. Ensure you have an NVIDIA GPU")
             print("2. Install NVIDIA GPU drivers for WSL:")
@@ -319,7 +319,7 @@ class PLCSetup:
                     })
                 
                 if issues_found:
-                    print("\n⚠ WSL Configuration Issues Found:")
+                    print("\n! WSL Configuration Issues Found:")
                     for issue in issues_found:
                         print(f"  - {issue['issue']}")
                         print(f"    Fix: {issue['fix']}")
@@ -337,14 +337,14 @@ class PLCSetup:
                     
                     return True
                 else:
-                    print("✓ No configuration issues found")
+                    print("V No configuration issues found")
                     return True
                     
             except Exception as e:
-                print(f"⚠ Could not check .wslconfig: {e}")
+                print(f"! Could not check .wslconfig: {e}")
                 return True
         else:
-            print("✓ No .wslconfig file found (using WSL defaults)")
+            print("V No .wslconfig file found (using WSL defaults)")
             return True
     
     def _install_poppler_via_wsl(self) -> bool:
@@ -370,23 +370,23 @@ class PLCSetup:
         try:
             result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout.strip():
-                print("✓ Poppler is already installed in WSL!")
+                print("V Poppler is already installed in WSL!")
                 print(f"  Found at: {result.stdout.strip()}")
                 return self._create_wsl_wrappers()
         except subprocess.TimeoutExpired:
-            print("⚠ WSL check timed out - WSL might be starting up")
+            print("! WSL check timed out - WSL might be starting up")
             print("  Waiting for WSL to initialize...")
             time.sleep(3)
             # Try once more
             try:
                 result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
                 if result.returncode == 0 and result.stdout.strip():
-                    print("✓ Poppler is already installed in WSL!")
+                    print("V Poppler is already installed in WSL!")
                     return self._create_wsl_wrappers()
             except:
                 pass
         except Exception as e:
-            print(f"⚠ Could not check for existing poppler: {e}")
+            print(f"! Could not check for existing poppler: {e}")
         
         # Check if we can run commands without sudo
         print("\nChecking WSL sudo requirements...")
@@ -398,14 +398,14 @@ class PLCSetup:
             passwordless_sudo = False
         
         if passwordless_sudo:
-            print("✓ Passwordless sudo detected, proceeding with automatic installation...")
+            print("V Passwordless sudo detected, proceeding with automatic installation...")
             return self._run_wsl_poppler_install()
         
         # Need to handle password authentication
         print("\n" + "="*60)
         print("WSL Poppler Installation Options")
         print("="*60)
-        print("\n⚠ WSL requires sudo password for package installation.\n")
+        print("\n! WSL requires sudo password for package installation.\n")
         print("1. Enter WSL password for automatic installation")
         print("2. Open WSL terminal for manual installation (recommended)")
         print("3. Configure passwordless sudo (development only)")
@@ -421,7 +421,7 @@ class PLCSetup:
                 if self._install_with_password_prompt():
                     return True
                 else:
-                    print("\n⚠ Automatic installation failed.")
+                    print("\n! Automatic installation failed.")
                     print("Would you like to try another option? (y/n): ", end='')
                     if input().lower() != 'y':
                         return False
@@ -494,10 +494,10 @@ fi
                 check_cmd = ['wsl', '-e', 'bash', '-c', 'which pdftotext']
                 check_result = subprocess.run(check_cmd, capture_output=True, text=True)
                 if check_result.returncode == 0:
-                    print("\n✓ Poppler installed successfully!")
+                    print("\nV Poppler installed successfully!")
                     return self._create_wsl_wrappers()
             
-            print("\n✗ Poppler installation failed")
+            print("\nX Poppler installation failed")
             return False
             
         except Exception as e:
@@ -538,7 +538,7 @@ fi
         print("  exit")
         print("\n" + "="*70)
         
-        print("\n⚠ IMPORTANT: Complete these steps in a SEPARATE terminal window!")
+        print("\n! IMPORTANT: Complete these steps in a SEPARATE terminal window!")
         input("\nPress Enter when you've completed the installation...")
         
         # Verify installation with multiple attempts
@@ -549,7 +549,7 @@ fi
             try:
                 result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
                 if result.returncode == 0 and result.stdout.strip():
-                    print(f"✓ Poppler successfully installed at: {result.stdout.strip()}")
+                    print(f"V Poppler successfully installed at: {result.stdout.strip()}")
                     return self._create_wsl_wrappers()
             except:
                 pass
@@ -558,7 +558,7 @@ fi
                 print(f"  Attempt {attempt + 1} failed, retrying...")
                 time.sleep(2)
         
-        print("\n✗ Could not verify poppler installation")
+        print("\nX Could not verify poppler installation")
         print("\nTroubleshooting:")
         print("1. Make sure you completed all steps in WSL")
         print("2. Try running 'wsl --shutdown' and then retry")
@@ -575,7 +575,7 @@ fi
         print("\n" + "="*70)
         print("Passwordless Sudo Configuration (Development Environment Only)")
         print("="*70)
-        print("\n⚠ WARNING: This reduces security. Only use in development!")
+        print("\n! WARNING: This reduces security. Only use in development!")
         print("\nSteps:")
         print("1. Open WSL: wsl")
         print("2. Edit sudoers file: sudo visudo")
@@ -612,22 +612,22 @@ wsl -e {tool} %*
                         with open(wrapper_path, 'w') as f:
                             f.write(wrapper_content)
                         created_wrappers.append(wrapper_path)
-                        print(f"  ✓ Created wrapper: {wrapper_path.name}")
+                        print(f"  V Created wrapper: {wrapper_path.name}")
                     except Exception as e:
-                        print(f"  ✗ Failed to create {wrapper_path.name}: {e}")
+                        print(f"  X Failed to create {wrapper_path.name}: {e}")
                 
                 if not created_wrappers:
-                    print("\n✗ Failed to create any wrappers")
+                    print("\nX Failed to create any wrappers")
                     return False
                 
                 # Add to PATH for current session
                 current_path = os.environ.get('PATH', '')
                 if str(wrapper_dir) not in current_path:
                     os.environ['PATH'] = f"{wrapper_dir};{current_path}"
-                    print(f"\n✓ Added {wrapper_dir} to PATH for current session")
+                    print(f"\nV Added {wrapper_dir} to PATH for current session")
                 
                 print("\n" + "="*60)
-                print("✓ Poppler Installation Complete!")
+                print("V Poppler Installation Complete!")
                 print("="*60)
                 print(f"  Wrappers created: {len(created_wrappers)}/{len(poppler_tools)}")
                 print(f"  Location: {wrapper_dir}")
@@ -637,14 +637,14 @@ wsl -e {tool} %*
                 
                 # Show GPU status summary
                 if hasattr(self, 'wsl_gpu_info') and self.wsl_gpu_info['available']:
-                    print(f"\n✓ GPU Status: {self.wsl_gpu_info['gpu_name']} ready for training!")
+                    print(f"\nV GPU Status: {self.wsl_gpu_info['gpu_name']} ready for training!")
                 else:
-                    print("\n⚠ GPU Status: Not available - training will use CPU")
+                    print("\n! GPU Status: Not available - training will use CPU")
                 
                 return True
                 
             except Exception as e:
-                print(f"\n✗ Error creating wrappers: {e}")
+                print(f"\nX Error creating wrappers: {e}")
                 return False
         
         return True
@@ -658,7 +658,7 @@ wsl -e {tool} %*
         vs_installed = self._check_visual_studio_installed()
         
         if not vs_installed:
-            print("⚠ Visual Studio Build Tools not detected.")
+            print("! Visual Studio Build Tools not detected.")
             print("  Please install from: https://visualstudio.microsoft.com/downloads/")
             print("  Select 'Desktop development with C++' workload")
             
@@ -677,11 +677,11 @@ wsl -e {tool} %*
             print("WSL detected - will install poppler automatically")
             
             if not self._install_poppler_via_wsl():
-                print("\n⚠ Failed to install poppler via WSL")
+                print("\n! Failed to install poppler via WSL")
                 print("Falling back to manual installation instructions...")
                 return self._manual_poppler_instructions()
         else:
-            print("⚠ WSL not detected")
+            print("! WSL not detected")
             print("\nWSL (Windows Subsystem for Linux) is recommended for automatic poppler installation.")
             print("To install WSL:")
             print("  1. Open PowerShell as Administrator")
@@ -842,11 +842,11 @@ wsl -e {tool} %*
                 if result.returncode == 0:
                     print(f" Final pip version: {result.stdout.strip()}")
                 else:
-                    print("⚠ Warning: Could not verify pip version")
+                    print("! Warning: Could not verify pip version")
             except subprocess.TimeoutExpired:
-                print("⚠ Warning: Pip version check timed out")
+                print("! Warning: Pip version check timed out")
             except Exception as e:
-                print(f"⚠ Warning: Error checking pip version: {e}")
+                print(f"! Warning: Error checking pip version: {e}")
         
         print(" All virtual environment tools upgraded successfully")
         return True
@@ -943,14 +943,14 @@ wsl -e {tool} %*
             try:
                 success, error_msg = strategy_func()
                 if success:
-                    print(f"    ✓ Success with {strategy_name}")
+                    print(f"    V Success with {strategy_name}")
                     return package, True, ""
                 else:
-                    print(f"    ✗ Failed: {error_msg}")
+                    print(f"    X Failed: {error_msg}")
                     if i < len(strategies):
                         print(f"    Trying next strategy...")
             except Exception as e:
-                print(f"    ✗ Strategy failed with exception: {e}")
+                print(f"    X Strategy failed with exception: {e}")
                 if i < len(strategies):
                     print(f"    Trying next strategy...")
         
@@ -1346,7 +1346,7 @@ wsl -e {tool} %*
                         print(" Bulk installation failed. Some packages may need manual installation.")
                         
                 except subprocess.TimeoutExpired:
-                    print("⚠ Bulk installation timed out after 2 hours. Some packages may need manual installation.")
+                    print("! Bulk installation timed out after 2 hours. Some packages may need manual installation.")
                 except Exception as e:
                     print(f"Error in bulk installation attempt: {e}")
             else:
@@ -1372,7 +1372,7 @@ wsl -e {tool} %*
                 else:
                     print(f"   FAILED: {package} - could not import")
             except subprocess.TimeoutExpired:
-                print(f"  ⚠ TIMEOUT: {package} - import test timed out")
+                print(f"  ! TIMEOUT: {package} - import test timed out")
             except Exception as e:
                 print(f"   ERROR: {package} - {e}")
         
@@ -1383,7 +1383,7 @@ wsl -e {tool} %*
             print(f"\n Installation completed successfully! ({success_rate*100:.1f}% success rate)")
             return True
         else:
-            print(f"\n⚠ Installation completed with issues. ({success_rate*100:.1f}% success rate)")
+            print(f"\n! Installation completed with issues. ({success_rate*100:.1f}% success rate)")
             print("Consider running the installation again or installing failed packages manually.")
             return False
 

@@ -94,26 +94,26 @@ class BuildToolsInstaller:
             status["has_msvc_compiler"] = True
             status["compiler_paths"] = msvc_paths
             status["needs_installation"] = False
-            print("✓ MSVC compiler found")
+            print("V MSVC compiler found")
         
         # Check for Visual Studio installations
         vs_installations = self._find_visual_studio_installations()
         if vs_installations:
             status["has_visual_studio"] = True
             status["needs_installation"] = False
-            print("✓ Visual Studio installation found")
+            print("V Visual Studio installation found")
         
         # Check for Build Tools specifically
         build_tools_installations = self._find_build_tools_installations()
         if build_tools_installations:
             status["has_build_tools"] = True
             status["needs_installation"] = False
-            print("✓ Visual Studio Build Tools found")
+            print("V Visual Studio Build Tools found")
         
         # Check for Windows SDK
         if self._check_windows_sdk():
             status["has_windows_sdk"] = True
-            print("✓ Windows SDK found")
+            print("V Windows SDK found")
         
         # Check for vcvars64.bat scripts
         vcvars_paths = self._find_vcvars_scripts()
@@ -121,7 +121,7 @@ class BuildToolsInstaller:
             status["vcvars_paths"] = vcvars_paths
             status["vs_environment_working"] = self._test_vs_environment_activation(vcvars_paths[0])
             if status["vs_environment_working"]:
-                print("✓ VS environment activation working")
+                print("V VS environment activation working")
         
         # Check for Rust and Cargo
         rust_status = self._check_rust_cargo()
@@ -268,11 +268,11 @@ class BuildToolsInstaller:
         
         status = self.check_build_tools_status()
         if not status["needs_installation"]:
-            print("✓ Build tools already installed")
+            print("V Build tools already installed")
             return True
         
         if not self.system_info["is_admin"]:
-            print("⚠ Administrator privileges required for build tools installation")
+            print("! Administrator privileges required for build tools installation")
             print("Please run the setup script as administrator or install manually:")
             print("1. Download: https://aka.ms/vs/17/release/vs_buildtools.exe")
             print("2. Run with: --add Microsoft.VisualStudio.Workload.VCTools")
@@ -289,7 +289,7 @@ class BuildToolsInstaller:
         elif installation_method == "direct_download":
             return self._install_via_direct_download()
         else:
-            print(f"⚠ Unknown installation method: {installation_method}")
+            print(f"! Unknown installation method: {installation_method}")
             return False
     
     def _install_via_chocolatey(self) -> bool:
@@ -303,16 +303,16 @@ class BuildToolsInstaller:
             ], capture_output=True, text=True, timeout=1800)  # 30 minute timeout
             
             if result.returncode == 0:
-                print("✓ Build tools installed successfully via Chocolatey")
+                print("V Build tools installed successfully via Chocolatey")
                 return True
             else:
-                print(f"✗ Chocolatey installation failed: {result.stderr}")
+                print(f"X Chocolatey installation failed: {result.stderr}")
                 return False
         except subprocess.TimeoutExpired:
-            print("⚠ Installation timed out")
+            print("! Installation timed out")
             return False
         except Exception as e:
-            print(f"✗ Chocolatey installation error: {e}")
+            print(f"X Chocolatey installation error: {e}")
             return False
     
     def _install_via_winget(self) -> bool:
@@ -325,16 +325,16 @@ class BuildToolsInstaller:
             ], capture_output=True, text=True, timeout=1800)  # 30 minute timeout
             
             if result.returncode == 0:
-                print("✓ Build tools installed successfully via winget")
+                print("V Build tools installed successfully via winget")
                 return True
             else:
-                print(f"✗ winget installation failed: {result.stderr}")
+                print(f"X winget installation failed: {result.stderr}")
                 return False
         except subprocess.TimeoutExpired:
-            print("⚠ Installation timed out")
+            print("! Installation timed out")
             return False
         except Exception as e:
-            print(f"✗ winget installation error: {e}")
+            print(f"X winget installation error: {e}")
             return False
     
     def _install_via_direct_download(self) -> bool:
@@ -345,7 +345,7 @@ class BuildToolsInstaller:
             
             # Download installer
             urllib.request.urlretrieve(self.vs_installer_url, installer_path)
-            print("✓ Installer downloaded")
+            print("V Installer downloaded")
             
             # Run installer
             print("Running installer (this may take several minutes)...")
@@ -363,19 +363,19 @@ class BuildToolsInstaller:
                 pass
             
             if result.returncode == 0:
-                print("✓ Build tools installed successfully")
+                print("V Build tools installed successfully")
                 return True
             else:
-                print(f"✗ Installation failed with return code {result.returncode}")
+                print(f"X Installation failed with return code {result.returncode}")
                 if result.stderr:
                     print(f"Error: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            print("⚠ Installation timed out")
+            print("! Installation timed out")
             return False
         except Exception as e:
-            print(f"✗ Direct download installation error: {e}")
+            print(f"X Direct download installation error: {e}")
             return False
     
     def verify_installation(self) -> bool:
@@ -385,10 +385,10 @@ class BuildToolsInstaller:
         status = self.check_build_tools_status()
         
         if status["has_msvc_compiler"]:
-            print("✓ MSVC compiler verification passed")
+            print("V MSVC compiler verification passed")
             return True
         else:
-            print("✗ MSVC compiler not found after installation")
+            print("X MSVC compiler not found after installation")
             return False
     
     def get_compiler_environment(self) -> Dict[str, str]:
@@ -430,7 +430,7 @@ class BuildToolsInstaller:
                             key, value = line.split('=', 1)
                             env_vars[key.strip()] = value.strip()
             except Exception as e:
-                print(f"⚠ Could not get compiler environment: {e}")
+                print(f"! Could not get compiler environment: {e}")
         
         return env_vars
 
@@ -478,7 +478,7 @@ class BuildToolsInstaller:
             if result.returncode == 0:
                 rust_status["has_rust"] = True
                 rust_status["rust_version"] = result.stdout.strip()
-                print(f"✓ Rust found: {rust_status['rust_version']}")
+                print(f"V Rust found: {rust_status['rust_version']}")
         except:
             pass
         
@@ -488,7 +488,7 @@ class BuildToolsInstaller:
             if result.returncode == 0:
                 rust_status["has_cargo"] = True
                 rust_status["cargo_version"] = result.stdout.strip()
-                print(f"✓ Cargo found: {rust_status['cargo_version']}")
+                print(f"V Cargo found: {rust_status['cargo_version']}")
         except:
             pass
         
@@ -517,7 +517,7 @@ class BuildToolsInstaller:
         # Check current status
         rust_status = self._check_rust_cargo()
         if not rust_status["needs_rust_installation"]:
-            print("✓ Rust and Cargo already installed")
+            print("V Rust and Cargo already installed")
             return True
         
         # Determine installation method
@@ -538,7 +538,7 @@ class BuildToolsInstaller:
         elif method == "rustup":
             return self._install_rust_via_rustup()
         else:
-            print(f"⚠ Unknown Rust installation method: {method}")
+            print(f"! Unknown Rust installation method: {method}")
             return False
 
     def _is_chocolatey_available(self) -> bool:
@@ -566,16 +566,16 @@ class BuildToolsInstaller:
             ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
             
             if result.returncode == 0:
-                print("✓ Rust installed successfully via Chocolatey")
+                print("V Rust installed successfully via Chocolatey")
                 return True
             else:
-                print(f"✗ Chocolatey Rust installation failed: {result.stderr}")
+                print(f"X Chocolatey Rust installation failed: {result.stderr}")
                 return False
         except subprocess.TimeoutExpired:
-            print("⚠ Rust installation timed out")
+            print("! Rust installation timed out")
             return False
         except Exception as e:
-            print(f"✗ Chocolatey Rust installation error: {e}")
+            print(f"X Chocolatey Rust installation error: {e}")
             return False
 
     def _install_rust_via_winget(self) -> bool:
@@ -588,16 +588,16 @@ class BuildToolsInstaller:
             ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
             
             if result.returncode == 0:
-                print("✓ Rust installed successfully via winget")
+                print("V Rust installed successfully via winget")
                 return True
             else:
-                print(f"✗ winget Rust installation failed: {result.stderr}")
+                print(f"X winget Rust installation failed: {result.stderr}")
                 return False
         except subprocess.TimeoutExpired:
-            print("⚠ Rust installation timed out")
+            print("! Rust installation timed out")
             return False
         except Exception as e:
-            print(f"✗ winget Rust installation error: {e}")
+            print(f"X winget Rust installation error: {e}")
             return False
 
     def _install_rust_via_rustup(self) -> bool:
@@ -625,7 +625,7 @@ class BuildToolsInstaller:
                 pass
             
             if result.returncode == 0:
-                print("✓ Rust installed successfully via rustup")
+                print("V Rust installed successfully via rustup")
                 
                 # Add Rust to PATH for current session
                 cargo_bin = os.path.expanduser("~/.cargo/bin")
@@ -633,18 +633,18 @@ class BuildToolsInstaller:
                     current_path = os.environ.get('PATH', '')
                     if cargo_bin not in current_path:
                         os.environ['PATH'] = f"{cargo_bin};{current_path}"
-                        print(f"✓ Added {cargo_bin} to PATH")
+                        print(f"V Added {cargo_bin} to PATH")
                 
                 return True
             else:
-                print(f"✗ rustup installation failed: {result.stderr}")
+                print(f"X rustup installation failed: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            print("⚠ Rust installation timed out")
+            print("! Rust installation timed out")
             return False
         except Exception as e:
-            print(f"✗ rustup installation error: {e}")
+            print(f"X rustup installation error: {e}")
             return False
 
     def _install_rust_linux(self) -> bool:
@@ -657,13 +657,13 @@ class BuildToolsInstaller:
             ], shell=True, capture_output=True, text=True, timeout=600)
             
             if result.returncode == 0:
-                print("✓ Rust installed successfully")
+                print("V Rust installed successfully")
                 return True
             else:
-                print(f"✗ Rust installation failed: {result.stderr}")
+                print(f"X Rust installation failed: {result.stderr}")
                 return False
         except Exception as e:
-            print(f"✗ Rust installation error: {e}")
+            print(f"X Rust installation error: {e}")
             return False
 
     def install_with_vs_environment(self, package: str, venv_pip: str) -> bool:
@@ -682,7 +682,7 @@ class BuildToolsInstaller:
         # Find vcvars script
         vcvars_paths = self._find_vcvars_scripts()
         if not vcvars_paths:
-            print("✗ No vcvars64.bat script found")
+            print("X No vcvars64.bat script found")
             return False
         
         vcvars_path = vcvars_paths[0]
@@ -708,17 +708,17 @@ call "{vcvars_path}"
                 pass
             
             if result.returncode == 0:
-                print(f"✓ {package} installed successfully with VS environment")
+                print(f"V {package} installed successfully with VS environment")
                 return True
             else:
-                print(f"✗ {package} installation failed: {result.stderr}")
+                print(f"X {package} installation failed: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            print(f"⚠ {package} installation timed out")
+            print(f"! {package} installation timed out")
             return False
         except Exception as e:
-            print(f"✗ {package} installation error: {e}")
+            print(f"X {package} installation error: {e}")
             return False
 
     def _install_package(self, package: str, extra_args: Optional[List[str]] = None) -> bool:
@@ -731,17 +731,17 @@ call "{vcvars_path}"
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
             
             if result.returncode == 0:
-                self.logger.info(f"✓ Successfully installed {package}")
+                self.logger.info(f"V Successfully installed {package}")
                 return True
             else:
-                self.logger.error(f"✗ Failed to install {package}: {result.stderr}")
+                self.logger.error(f"X Failed to install {package}: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            self.logger.error(f"⚠ Installation of {package} timed out")
+            self.logger.error(f"! Installation of {package} timed out")
             return False
         except Exception as e:
-            self.logger.error(f"✗ Installation error for {package}: {e}")
+            self.logger.error(f"X Installation error for {package}: {e}")
             return False
 
     def install_paddleocr(self, capabilities: Dict) -> bool:
@@ -754,22 +754,22 @@ call "{vcvars_path}"
  
         If any of these steps fail, fall back to Phase 2 – the older
         "dependencies-first" procedure that pre-installs critical wheels then
-        installs PaddlePaddle (GPU→CPU) and finally PaddleOCR.
+        installs PaddlePaddle (GPU->CPU) and finally PaddleOCR.
         """
-        self.logger.info("Phase 1 ➜ direct Paddle GPU wheel install …")
+        self.logger.info("Phase 1 ➜ direct Paddle GPU wheel install ...")
 
         gpu_index = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
 
         # --- Phase 1: minimal install -------------------------------------------------
         if self._install_package("paddlepaddle-gpu==3.0.0", ["-i", gpu_index]):
-            self.logger.info("✓ PaddlePaddle-GPU installed successfully")
+            self.logger.info("V PaddlePaddle-GPU installed successfully")
 
             # try installing PaddleOCR straight away
             if not self._install_package("paddleocr"):
                 self.logger.warning("PaddleOCR install failed – will fall back to dependencies-first method")
             else:
                 if self._verify_paddleocr_installation():
-                    self.logger.info("✓ PaddleOCR verified – Phase 1 succeeded")
+                    self.logger.info("V PaddleOCR verified – Phase 1 succeeded")
                     return True
                 else:
                     self.logger.warning("PaddleOCR import/initialisation failed after Phase 1 – will try full dependency path")
@@ -777,7 +777,7 @@ call "{vcvars_path}"
             self.logger.warning("PaddlePaddle-GPU wheel install failed – trying full dependency path")
 
         # --- Phase 2: dependencies-first fallback ------------------------------------
-        self.logger.info("Phase 2 ➜ dependencies-first fallback …")
+        self.logger.info("Phase 2 ➜ dependencies-first fallback ...")
 
         dependencies = [
             "numpy>=2.1",  # Allow modern NumPy compatible with PyTorch/Paddle
@@ -789,11 +789,11 @@ call "{vcvars_path}"
             "paddlex>=2.0.0"
         ]
 
-        self.logger.info("Installing core dependencies prior to Paddle…")
+        self.logger.info("Installing core dependencies prior to Paddle...")
         for dep in dependencies:
             self._install_package(dep)
 
-        # GPU wheel again (may already be present) → if fails, CPU
+        # GPU wheel again (may already be present) -> if fails, CPU
         if not self._install_package("paddlepaddle-gpu==3.0.0", ["-i", gpu_index]):
             self.logger.warning("GPU wheel still unavailable – installing CPU wheel from PyPI")
             if not self._install_package("paddlepaddle==3.0.0"):
@@ -809,7 +809,7 @@ call "{vcvars_path}"
             self.logger.error("PaddleOCR verification failed even after fallback")
             return False
 
-        self.logger.info("✓ PaddleOCR installed and verified via fallback path")
+        self.logger.info("V PaddleOCR installed and verified via fallback path")
         return True
 
     def _verify_paddleocr_installation(self) -> bool:
@@ -840,13 +840,13 @@ except Exception as e:
                                   capture_output=True, text=True, timeout=300)
             
             if "IMPORT_SUCCESS" in result.stdout:
-                self.logger.info("✓ PaddleOCR import successful")
+                self.logger.info("V PaddleOCR import successful")
                 
                 if "INIT_SUCCESS" in result.stdout:
-                    self.logger.info("✓ PaddleOCR initialization successful")
+                    self.logger.info("V PaddleOCR initialization successful")
                     return True
                 else:
-                    self.logger.warning("⚠ PaddleOCR import works but initialization failed")
+                    self.logger.warning("! PaddleOCR import works but initialization failed")
                     return True  # Import success is enough for basic functionality
             else:
                 self.logger.error(f"PaddleOCR verification failed: {result.stdout} {result.stderr}")
@@ -890,7 +890,7 @@ def main():
             if success:
                 installer.verify_installation()
     else:
-        print("\n✓ Build tools are already installed")
+        print("\nV Build tools are already installed")
 
 if __name__ == "__main__":
     main()

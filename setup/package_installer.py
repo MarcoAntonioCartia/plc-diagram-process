@@ -67,7 +67,7 @@ class RobustPackageInstaller:
             True if installation was successful
         """
         if not requirements_file.exists():
-            print(f"✗ Requirements file not found: {requirements_file}")
+            print(f"X Requirements file not found: {requirements_file}")
             return False
         
         print(f" Installing packages from {requirements_file}")
@@ -75,7 +75,7 @@ class RobustPackageInstaller:
         # Parse requirements file
         packages = self._parse_requirements_file(requirements_file)
         if not packages:
-            print("⚠ No packages found in requirements file")
+            print("! No packages found in requirements file")
             return True
         
         print(f"Found {len(packages)} packages to install")
@@ -132,7 +132,7 @@ class RobustPackageInstaller:
                         packages.append(line)
         
         except Exception as e:
-            print(f"⚠ Error parsing requirements file: {e}")
+            print(f"! Error parsing requirements file: {e}")
         
         return packages
     
@@ -167,20 +167,20 @@ class RobustPackageInstaller:
                     success = self._install_from_source(package)
                 
                 if success:
-                    print(f"  ✓ {package} installed successfully via {install_strategy}")
+                    print(f"  V {package} installed successfully via {install_strategy}")
                     successful_packages.append(package)
                     break
                 else:
-                    print(f"  ✗ {install_strategy} failed for {package}")
+                    print(f"  X {install_strategy} failed for {package}")
             
             if not success:
-                print(f"  ✗ All strategies failed for {package}")
+                print(f"  X All strategies failed for {package}")
                 failed_packages.append(package)
         
         # Summary
         print(f"\n Installation Summary:")
-        print(f"  ✓ Successful: {len(successful_packages)}")
-        print(f"  ✗ Failed: {len(failed_packages)}")
+        print(f"  V Successful: {len(successful_packages)}")
+        print(f"  X Failed: {len(failed_packages)}")
         
         if failed_packages:
             print(f"\nFailed packages:")
@@ -216,10 +216,10 @@ class RobustPackageInstaller:
             return result.returncode == 0
             
         except subprocess.TimeoutExpired:
-            print("    ⚠ Installation timed out")
+            print("    ! Installation timed out")
             return False
         except Exception as e:
-            print(f"    ⚠ Wheel-only installation error: {e}")
+            print(f"    ! Wheel-only installation error: {e}")
             return False
     
     def _install_wheel_with_fallback(self, package: str, package_name: str) -> bool:
@@ -292,10 +292,10 @@ class RobustPackageInstaller:
             return result.returncode == 0
             
         except subprocess.TimeoutExpired:
-            print("    ⚠ Conda installation timed out")
+            print("    ! Conda installation timed out")
             return False
         except Exception as e:
-            print(f"    ⚠ Conda installation error: {e}")
+            print(f"    ! Conda installation error: {e}")
             return False
     
     def _install_from_source(self, package: str) -> bool:
@@ -307,7 +307,7 @@ class RobustPackageInstaller:
             try:
                 subprocess.run(["cl"], capture_output=True, check=True)
             except:
-                print("    ⚠ No compiler available for source installation")
+                print("    ! No compiler available for source installation")
                 return False
         
         try:
@@ -324,10 +324,10 @@ class RobustPackageInstaller:
             return result.returncode == 0
             
         except subprocess.TimeoutExpired:
-            print("    ⚠ Source installation timed out")
+            print("    ! Source installation timed out")
             return False
         except Exception as e:
-            print(f"    ⚠ Source installation error: {e}")
+            print(f"    ! Source installation error: {e}")
             return False
     
     def _provide_failure_guidance(self, failed_packages: List[str]):
@@ -373,7 +373,7 @@ class RobustPackageInstaller:
     def verify_installation(self, packages: List[str]) -> Dict[str, bool]:
         """Verify that packages were installed correctly"""
         
-        print(f"\n🔍 Verifying package installations...")
+        print(f"\nVerifying package installations...")
         
         results = {}
         
@@ -384,7 +384,7 @@ class RobustPackageInstaller:
                 # Try to import the package
                 __import__(package_name)
                 results[package_name] = True
-                print(f"  ✓ {package_name}")
+                print(f"  V {package_name}")
             except ImportError:
                 # Try common alternative import names
                 alt_names = {
@@ -399,13 +399,13 @@ class RobustPackageInstaller:
                     try:
                         __import__(alt_name)
                         results[package_name] = True
-                        print(f"  ✓ {package_name} (as {alt_name})")
+                        print(f"  V {package_name} (as {alt_name})")
                         continue
                     except ImportError:
                         pass
                 
                 results[package_name] = False
-                print(f"  ✗ {package_name}")
+                print(f"  X {package_name}")
         
         successful = sum(1 for success in results.values() if success)
         total = len(results)
@@ -429,10 +429,10 @@ def main():
     success = installer.install_packages(test_packages)
     
     if success:
-        print("\n✓ All packages installed successfully")
+        print("\nV All packages installed successfully")
         installer.verify_installation(test_packages)
     else:
-        print("\n⚠ Some packages failed to install")
+        print("\n! Some packages failed to install")
 
 if __name__ == "__main__":
     main()

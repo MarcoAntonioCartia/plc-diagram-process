@@ -57,7 +57,7 @@ class _VenvPaths:
 class MultiEnvironmentManager:
     """Create, validate and use split detection / OCR environments."""
 
-    DETECTION_ENV_NAME = "yolo_env"  # Renamed from detection_env
+    DETECTION_ENV_NAME = "yolo_env"  # use yolo_env for detection
     OCR_ENV_NAME = "ocr_env"
 
     # Default package stubs – will be finalised in __init__ once we know the
@@ -97,21 +97,44 @@ class MultiEnvironmentManager:
         core_req = self.project_root / "requirements-core.txt"
         ocr_req = self.project_root / "requirements-ocr.txt"
 
-        # Install PyPI packages first, then give framework-specific wheels via
-        # an *additional* index URL so we can still resolve common
-        # dependencies like ``wheel`` from the default repository.
+        # Prefer CPU wheels when no NVIDIA GPU is present – CI runners.
+        torch_index = "https://download.pytorch.org/whl/cpu"
+        if shutil.which("nvidia-smi"):
+            try:
+                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True)
+                if out.returncode == 0 and out.stdout.strip():
+                    torch_index = "https://download.pytorch.org/whl/cu128"
+            except Exception:
+                pass
 
         self._DETECTION_PKGS = [
-            "--extra-index-url", "https://download.pytorch.org/whl/cu128",
+            "--extra-index-url", torch_index,
             "-r", str(core_req),
             "-r", str(det_req),
         ]
 
+        # Use CPU Paddle when CUDA not available.
+        paddle_pkg = "paddlepaddle==3.0.0"
+        paddle_ocr_pkg = "paddleocr==3.0.1"
+
+        # Create a temporary requirements file without paddlepaddle-gpu that breaks on CPU runners
+        filtered_ocr_req = self.project_root / ".ci_ocr_requirements.txt"
+        try:
+            with open(ocr_req, "r", encoding="utf-8") as src, open(filtered_ocr_req, "w", encoding="utf-8") as dst:
+                for line in src:
+                    if "paddlepaddle-gpu" in line:
+                        continue  # skip GPU wheel
+                    dst.write(line)
+        except Exception:
+            # Fallback: if anything goes wrong use original file
+            filtered_ocr_req = ocr_req
+
         self._OCR_PKGS = [
-            "--extra-index-url", "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
-            "requests",  # needed by many helpers, keep it explicit
+            "requests",
+            paddle_pkg,
+            paddle_ocr_pkg,
             "-r", str(core_req),
-            "-r", str(ocr_req),
+            "-r", str(filtered_ocr_req),
         ]
 
     # ------------------------------------------------------------------
@@ -265,7 +288,14 @@ class MultiEnvironmentManager:
                 print(f"[MultiEnv] DRY-RUN: would create venv {env_path.name}")
             else:
                 print(f"[MultiEnv] Creating venv {env_path.name} …")
-                subprocess.check_call([sys.executable, "-m", "venv", str(env_path)])
+                # Use Python 3.11 specifically for compatibility
+                python311_cmd = shutil.which("py") and ["py", "-3.11"] or ["python3.11"]
+                if shutil.which("py"):
+                    # Windows with py launcher
+                    subprocess.check_call(["py", "-3.11", "-m", "venv", str(env_path)])
+                else:
+                    # Fallback to system python
+                    subprocess.check_call([sys.executable, "-m", "venv", str(env_path)])
 
         python_exe = _VenvPaths(env_path).python
         pip_exe = _VenvPaths(env_path).pip
@@ -347,6 +377,8 @@ class MultiEnvironmentManager:
                         timeout=TIMEOUT_SEC,
                         capture_output=True,
                         text=True,
+                        encoding='utf-8',
+                        errors='replace'  # Replace problematic characters instead of crashing
                     )
 
                     if completed.returncode != 0:

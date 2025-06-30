@@ -495,17 +495,22 @@ class TrainingStage(BaseStage):
     def _run_training_multi_env(self, env_manager, config, pretrained_info, progress) -> Dict[str, Any]:
         """Run training in multi-environment mode using yolo11_train.py logic"""
         try:
+            # Get training configuration from stage config (passed from command line)
+            stage_config = self.config or {}
+            epochs = stage_config.get('epochs', 50)  # Default 50, can be overridden
+            batch_size = stage_config.get('batch_size', 16)  # Default 16, can be overridden
+            
             # Prepare training payload
             training_payload = {
                 'action': 'train',
                 'model_path': pretrained_info['model_path'],
                 'data_yaml_path': str(config.data_yaml_path),
-                'epochs': 50,  # Reasonable default for fine-tuning
-                'batch_size': 16,
-                'patience': 20,
+                'epochs': epochs,
+                'batch_size': batch_size,
+                'patience': max(10, epochs // 2),  # Adaptive patience based on epochs
                 'project_name': f"plc_symbol_detector_{pretrained_info['model_name'].replace('.pt', '')}",
                 'output_dir': str(config.get_model_path('', 'custom').parent),
-                'config': {}
+                'config': stage_config
             }
             
             progress.update_progress("Running YOLO training in isolated environment...")

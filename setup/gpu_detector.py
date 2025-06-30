@@ -30,7 +30,7 @@ class GPUDetector:
         Returns:
             Dictionary containing GPU and CUDA information
         """
-        print("🔍 Detecting GPU capabilities...")
+        print("Detecting GPU capabilities...")
         
         gpu_info = {
             "has_nvidia_gpu": False,
@@ -47,14 +47,14 @@ class GPUDetector:
         nvidia_ml_info = self._detect_with_nvidia_ml()
         if nvidia_ml_info:
             gpu_info.update(nvidia_ml_info)
-            print(f"✓ NVIDIA GPU detected via nvidia-ml-py")
+            print(f"V NVIDIA GPU detected via nvidia-ml-py")
         
         # Method 2: Try nvidia-smi (fallback)
         if not gpu_info["has_nvidia_gpu"]:
             nvidia_smi_info = self._detect_with_nvidia_smi()
             if nvidia_smi_info:
                 gpu_info.update(nvidia_smi_info)
-                print(f"✓ NVIDIA GPU detected via nvidia-smi")
+                print(f"V NVIDIA GPU detected via nvidia-smi")
         
         # Method 3: Check CUDA installation
         if gpu_info["has_nvidia_gpu"]:
@@ -126,7 +126,7 @@ class GPUDetector:
             except:
                 pass
         except Exception as e:
-            print(f"⚠ nvidia-ml-py detection failed: {e}")
+            print(f"! nvidia-ml-py detection failed: {e}")
         
         return None
     
@@ -167,7 +167,7 @@ class GPUDetector:
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
             pass
         except Exception as e:
-            print(f"⚠ nvidia-smi detection failed: {e}")
+            print(f"! nvidia-smi detection failed: {e}")
         
         return None
     
@@ -229,7 +229,7 @@ class GPUDetector:
         
         # If CUDA version is still unknown but an NVIDIA GPU exists we return
         # a sentinel so that higher-level code can still pick a reasonable GPU
-        # wheel (e.g. cu121).  This avoids the misleading "⚠ CUDA not
+        # wheel (e.g. cu121).  This avoids the misleading "! CUDA not
         # detected" message that confused users.
         if getattr(self, "gpu_info", None) and self.gpu_info.get("has_nvidia_gpu"):
             return {
@@ -320,7 +320,7 @@ class GPUDetector:
         print("="*50)
         
         if self.gpu_info["has_nvidia_gpu"]:
-            print(f"✓ NVIDIA GPU(s) detected:")
+            print(f"V NVIDIA GPU(s) detected:")
             for i, (model, memory, compute) in enumerate(zip(
                 self.gpu_info["gpu_models"],
                 self.gpu_info["gpu_memory"], 
@@ -329,10 +329,10 @@ class GPUDetector:
                 print(f"  GPU {i}: {model} ({memory}GB, Compute {compute})")
             
             if self.gpu_info["has_cuda"]:
-                print(f"✓ CUDA Version: {self.gpu_info['cuda_version']}")
-                print(f"✓ Recommended PyTorch: {self.gpu_info['recommended_pytorch']}")
+                print(f"V CUDA Version: {self.gpu_info['cuda_version']}")
+                print(f"V Recommended PyTorch: {self.gpu_info['recommended_pytorch']}")
             else:
-                print("⚠ CUDA not detected - will use CPU version")
+                print("! CUDA not detected - will use CPU version")
         else:
             print("ℹ No NVIDIA GPU detected")
             if self.gpu_info.get("other_gpus"):
