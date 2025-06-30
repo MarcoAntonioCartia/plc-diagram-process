@@ -73,6 +73,7 @@ class UnifiedPLCSetup:
         self.dry_run = dry_run
         self.system = platform.system().lower()
         self.parallel_jobs = max(1, min(parallel_jobs, 8))
+        self.ci_test_mode = False  # Will be set by main() if needed
         
         # Thread-safe progress tracking
         self.progress_lock = threading.Lock()
@@ -748,6 +749,10 @@ wsl -e {tool} %*
         if self.dry_run:
             print("DRY RUN: Skipping system dependency installation")
             return True
+            
+        if self.ci_test_mode:
+            print("CI TEST MODE: Installing minimal system dependencies")
+            return self._install_ci_dependencies()
         
         if self.system == 'windows':
             return self._install_windows_dependencies()
@@ -758,6 +763,22 @@ wsl -e {tool} %*
         else:
             print(f"Unsupported system: {self.system}")
             return False
+
+    def _install_ci_dependencies(self) -> bool:
+        """Install minimal dependencies for CI testing"""
+        print("Installing CI-specific dependencies...")
+        
+        if self.system == 'linux':
+            # Install only essential packages for CI
+            commands = [
+                (['sudo', 'apt', 'update'], "Updating package list"),
+                (['sudo', 'apt', 'install', '-y', 'python3-dev', 'build-essential'], "Installing build tools"),
+                (['sudo', 'apt', 'install', '-y', 'poppler-utils'], "Installing Poppler for PDF processing"),
+            ]
+            return self._run_commands(commands)
+        else:
+            print("V CI dependencies not needed for this platform")
+            return True
 
     def _install_windows_dependencies(self) -> bool:
         """Install dependencies on Windows"""
@@ -2031,6 +2052,9 @@ def main():
     # Optional: dry-run dependency resolution inside the split envs before full install
     parser.add_argument('--pip-check', action='store_true',
                        help='Run a quick "pip install --dry-run" resolver inside the current interpreter before creating split environments')
+    # CI testing mode
+    parser.add_argument('--ci-test', action='store_true',
+                       help='Run in CI testing mode with lightweight package selection and faster installation')
     
     args = parser.parse_args()
     
@@ -2048,6 +2072,7 @@ def main():
     # Otherwise proceed with the full setup workflow
     setup = UnifiedPLCSetup(data_root=args.data_root, dry_run=args.dry_run, parallel_jobs=args.parallel_jobs)
     setup.skip_gpu_packages = args.multi_env
+    setup.ci_test_mode = args.ci_test
     
     # CRITICAL FIX: Defer downloads when using multi-env mode
     # This prevents dataset/model managers from being called before the split environments exist

@@ -27,17 +27,19 @@ jobs:
         run: |
           pip install ruamel.yaml psutil requests
 
-      - name: Validate CI setup
+      - name: Validate CI setup (fast syntax check)
         run: python tests/test_ci_setup.py
 
-      - name: Run setup script (single or multi)
-        shell: bash
+      - name: Test multi-environment setup (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            python setup/setup.py --multi-env --dry-run || true  # Use dry-run to avoid heavy installs in CI
-          else
-            python setup/setup.py --dry-run || true
-          fi
+          python setup/setup.py --multi-env --ci-test
+        timeout-minutes: 15
 
-      - name: Run tests
-        run: pytest -q 
+      - name: Validate multi-environment imports (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python tests/test_multi_env_imports.py
+
+      - name: Run basic tests
+        run: pytest -q tests/ -k "not test_multi_env" 
