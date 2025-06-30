@@ -46,7 +46,7 @@ tqdm==4.66.4
 scikit-learn==1.5.0
 matplotlib==3.8.4
 seaborn==0.13.2
-opencv-python==4.9.0.80
+opencv-python-headless==4.10.0.82
 psutil==5.9.8
 requests==2.32.3
 # Ensure you have poppler installed on your system for pdf2image to work
@@ -58,7 +58,7 @@ openpyxl==3.1.4
 # Core ML and Computer Vision
 torch>=2.0.0                # PyTorch deep learning framework
 torchvision>=0.15.0         # Computer vision utilities for PyTorch
-opencv-python>=4.6.0        # Computer vision and image processing
+opencv-python-headless>=4.6.0        # Computer vision and image processing
 pillow>=9.0.0               # Image processing library
 numpy>=1.21.0               # Numerical computing
 scipy>=1.7.0                # Scientific computing

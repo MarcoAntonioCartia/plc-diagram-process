@@ -235,6 +235,12 @@ class UnifiedPLCSetup:
 
     def setup_build_environment(self, capabilities: Dict) -> bool:
         """Enhanced build environment setup with C++ and Rust support"""
+        # In CI we already validated build tools status in detect_system_capabilities – avoid any
+        # further prompts or installer checks that might block.
+        if self.ci_test_mode:
+            print("\n=== Enhanced Build Environment Setup (CI – skipped) ===")
+            return True
+
         print("\n=== Enhanced Build Environment Setup ===")
         
         if not self.build_tools_installer:
@@ -1517,7 +1523,7 @@ if torch.cuda.is_available():
         if self.ci_test_mode:
             print("CI TEST MODE: Running package installation in dry-run mode")
             original_dry_run = self.dry_run
-            self.dry_run = True  # Force dry-run for package installation
+            #self.dry_run = True  # Force dry-run for package installation, keep in case we need it
             
             # Continue with normal flow but in dry-run mode
             result = self._install_packages_normal_flow()
@@ -2170,8 +2176,29 @@ def main():
     setup.ci_test_mode = args.ci_test
     setup.non_interactive = args.ci_test  # CI test mode should be non-interactive
     
+    # Make ALL stray input() calls non-blocking in CI/non-interactive mode
+    if setup.non_interactive:
+        import builtins  # type: ignore
+
+        def _auto_input(prompt: str = "") -> str:  # noqa: D401
+            """Return a safe default answer when running non-interactive setups.
+
+            We default to 'n' which means *no/skip* for yes-no questions, and
+            is harmless for 'Press ENTER to continue' prompts (empty string is
+            treated as Enter).  This guarantees that **any** forgotten input()
+            call will not block the CI runner.
+            """
+            if prompt.strip().lower().startswith("press"):
+                return ""  # just press ENTER
+            if "(y/n" in prompt.lower():
+                return "n"
+            if "select option" in prompt.lower():
+                return "4" if "1-4" in prompt else "3"
+            return "n"
+
+        builtins.input = _auto_input  # type: ignore
+    
     # CRITICAL FIX: Defer downloads when using multi-env mode
-    # This prevents dataset/model managers from being called before the split environments exist
     if args.multi_env:
         setup.defer_downloads = True
         print("[Setup] Multi-env mode: deferring data/model downloads until after environment creation")
