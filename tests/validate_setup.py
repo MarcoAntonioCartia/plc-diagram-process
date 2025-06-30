@@ -25,11 +25,16 @@ def detect_setup_type():
     
     # Check for multi-environment setup
     if environments_dir.exists():
+        # Check for yolo_env (new name) or detection_env (legacy name)
+        yolo_env = environments_dir / "yolo_env"
         detection_env = environments_dir / "detection_env"
         ocr_env = environments_dir / "ocr_env"
-        if detection_env.exists() and ocr_env.exists():
+        
+        if (yolo_env.exists() or detection_env.exists()) and ocr_env.exists():
+            # Use yolo_env if it exists, otherwise fall back to detection_env
+            active_detection_env = yolo_env if yolo_env.exists() else detection_env
             return "multi-env", {
-                "detection_env": detection_env,
+                "detection_env": active_detection_env,
                 "ocr_env": ocr_env
             }
     

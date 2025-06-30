@@ -57,7 +57,7 @@ class _VenvPaths:
 class MultiEnvironmentManager:
     """Create, validate and use split detection / OCR environments."""
 
-    DETECTION_ENV_NAME = "detection_env"  # use canonical name for tests
+    DETECTION_ENV_NAME = "yolo_env"  # use yolo_env for detection
     OCR_ENV_NAME = "ocr_env"
 
     # Default package stubs – will be finalised in __init__ once we know the
@@ -288,7 +288,14 @@ class MultiEnvironmentManager:
                 print(f"[MultiEnv] DRY-RUN: would create venv {env_path.name}")
             else:
                 print(f"[MultiEnv] Creating venv {env_path.name} …")
-                subprocess.check_call([sys.executable, "-m", "venv", str(env_path)])
+                # Use Python 3.11 specifically for compatibility
+                python311_cmd = shutil.which("py") and ["py", "-3.11"] or ["python3.11"]
+                if shutil.which("py"):
+                    # Windows with py launcher
+                    subprocess.check_call(["py", "-3.11", "-m", "venv", str(env_path)])
+                else:
+                    # Fallback to system python
+                    subprocess.check_call([sys.executable, "-m", "venv", str(env_path)])
 
         python_exe = _VenvPaths(env_path).python
         pip_exe = _VenvPaths(env_path).pip
