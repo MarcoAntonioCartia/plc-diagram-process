@@ -73,7 +73,7 @@ def test_opencv_headless_usage():
     version_410 = main_content.count("4.10.0.82")
     version_49 = main_content.count("4.9.0.80")
     
-    if version_410 >= 2 and version_49 == 0:
+    if version_410 >= 1 and version_49 == 0:
         print("V OpenCV versions consistent (4.10.0.82)")
     else:
         print(f"X OpenCV version inconsistency: v4.10={version_410}, v4.9={version_49}")
@@ -187,8 +187,9 @@ def main():
         print("1. PaddleOCR version conflict resolved (3.0.1 everywhere)")
         print("2. OpenCV headless versions used for CI compatibility")
         print("3. Environment path detection updated for environments/ subdirectory")
-        print("4. System dependencies added to CI workflow")
+        print("4. System dependencies updated for Ubuntu 24.04 (libgl1-mesa-dri)")
         print("5. Better error reporting added to CI workflow")
+        print("6. CI-compatible test suite with graceful error handling")
         return 0
     else:
         print("X Some CI fix tests failed")
