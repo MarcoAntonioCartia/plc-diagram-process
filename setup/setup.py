@@ -74,6 +74,7 @@ class UnifiedPLCSetup:
         self.system = platform.system().lower()
         self.parallel_jobs = max(1, min(parallel_jobs, 8))
         self.ci_test_mode = False  # Will be set by main() if needed
+        self.non_interactive = False  # Will be set for CI mode
         
         # Thread-safe progress tracking
         self.progress_lock = threading.Lock()
@@ -247,7 +248,11 @@ class UnifiedPLCSetup:
             print("C++ build tools installation recommended...")
             
             if not self.dry_run:
-                response = input("Install C++ build tools automatically? (y/n/skip): ")
+                if self.non_interactive or self.ci_test_mode:
+                    response = 'skip'  # Skip in CI mode
+                    print("CI MODE: Skipping C++ build tools installation")
+                else:
+                    response = input("Install C++ build tools automatically? (y/n/skip): ")
                 if response.lower() == 'y':
                     try:
                         if self.build_tools_installer.install_build_tools():
@@ -271,7 +276,11 @@ class UnifiedPLCSetup:
             print("\nRust/Cargo installation recommended for some packages...")
             
             if not self.dry_run:
-                response = input("Install Rust/Cargo automatically? (y/n/skip): ")
+                if self.non_interactive or self.ci_test_mode:
+                    response = 'skip'  # Skip in CI mode
+                    print("CI MODE: Skipping Rust/Cargo installation")
+                else:
+                    response = input("Install Rust/Cargo automatically? (y/n/skip): ")
                 if response.lower() == 'y':
                     try:
                         if self.build_tools_installer.install_rust_cargo():
@@ -658,7 +667,10 @@ echo "SUCCESS"
         print("\n" + "="*70)
         
         print("\n! IMPORTANT: Complete these steps in a SEPARATE terminal window!")
-        input("\nPress Enter when you've completed the installation...")
+        if self.non_interactive or self.ci_test_mode:
+            print("CI MODE: Skipping manual installation wait")
+        else:
+            input("\nPress Enter when you've completed the installation...")
         
         # Verify installation with multiple attempts
         print("\nVerifying poppler installation...")
@@ -683,9 +695,13 @@ echo "SUCCESS"
         print("2. Try running 'wsl --shutdown' and then retry")
         print("3. Check if WSL is properly installed")
         
-        retry = input("\nWould you like to try verification again? (y/n): ")
-        if retry.lower() == 'y':
-            return self._guide_manual_wsl_installation()
+        if self.non_interactive or self.ci_test_mode:
+            print("CI MODE: Skipping retry verification")
+            return False
+        else:
+            retry = input("\nWould you like to try verification again? (y/n): ")
+            if retry.lower() == 'y':
+                return self._guide_manual_wsl_installation()
         
         return False
 
@@ -804,7 +820,11 @@ wsl -e {tool} %*
             print("  4. Run this setup again")
             
             if not self.dry_run:
-                response = input("\nDo you want to continue with manual poppler installation? (y/n): ")
+                if self.non_interactive or self.ci_test_mode:
+                    print("CI MODE: Proceeding with manual poppler installation")
+                    response = 'y'
+                else:
+                    response = input("\nDo you want to continue with manual poppler installation? (y/n): ")
                 if response.lower() != 'y':
                     print("\nPlease install WSL and run setup again for automatic installation.")
                     return False
@@ -883,7 +903,11 @@ wsl -e {tool} %*
         print("   Example: C:\\poppler-xx.xx.x\\Library\\bin")
         
         if not self.dry_run:
-            response = input("\nHave you installed Poppler manually? (y/n): ")
+            if self.non_interactive or self.ci_test_mode:
+                print("CI MODE: Assuming Poppler is available")
+                response = 'y'
+            else:
+                response = input("\nHave you installed Poppler manually? (y/n): ")
             if response.lower() != 'y':
                 print("Please install Poppler and run the setup again.")
                 return False
@@ -967,7 +991,11 @@ wsl -e {tool} %*
             if self.venv_python.exists():
                 print("V Existing virtual environment appears valid")
                 if not self.dry_run:
-                    response = input("Recreate virtual environment? (y/n): ")
+                    if self.non_interactive or self.ci_test_mode:
+                        print("CI MODE: Recreating virtual environment")
+                        response = 'y'
+                    else:
+                        response = input("Recreate virtual environment? (y/n): ")
                     if response.lower() != 'y':
                         return True
                 else:
@@ -1430,7 +1458,11 @@ if torch.cuda.is_available():
                             print(f"  Found old version references in settings.json")
                             
                             if not self.dry_run:
-                                response = input(f"  Clean Ultralytics cache at {cache_dir}? (y/n): ")
+                                if self.non_interactive or self.ci_test_mode:
+                                    print("CI MODE: Cleaning Ultralytics cache")
+                                    response = 'y'
+                                else:
+                                    response = input(f"  Clean Ultralytics cache at {cache_dir}? (y/n): ")
                                 if response.lower() == 'y':
                                     try:
                                         shutil.rmtree(cache_dir)
@@ -1540,7 +1572,11 @@ if torch.cuda.is_available():
             
             # Try bulk installation of failed packages
             if not self.dry_run:
-                response = input("\nAttempt bulk installation of failed packages? (y/n): ")
+                if self.non_interactive or self.ci_test_mode:
+                    print("CI MODE: Attempting bulk installation of failed packages")
+                    response = 'y'
+                else:
+                    response = input("\nAttempt bulk installation of failed packages? (y/n): ")
                 if response.lower() == 'y':
                     return self._bulk_install_failed_packages(failed_packages)
         
@@ -1958,7 +1994,11 @@ echo "Python: {self.venv_python}"
             return True
 
         while True:
-            choice = input("Select option (1-4): ").strip()
+            if self.non_interactive or self.ci_test_mode:
+                print("CI MODE: Skipping downloads")
+                choice = "4"
+            else:
+                choice = input("Select option (1-4): ").strip()
             if choice not in {"1", "2", "3", "4"}:
                 print("Please enter 1-4"); continue
             if choice == "4":
@@ -2000,7 +2040,11 @@ echo "Python: {self.venv_python}"
             return True
 
         while True:
-            choice = input("Select option (1-4): ").strip()
+            if self.non_interactive or self.ci_test_mode:
+                print("CI MODE: Skipping downloads")
+                choice = "4"
+            else:
+                choice = input("Select option (1-4): ").strip()
             if choice not in {"1", "2", "3", "4"}:
                 print("Please enter 1-4"); continue
             if choice == "4":
@@ -2073,6 +2117,7 @@ def main():
     setup = UnifiedPLCSetup(data_root=args.data_root, dry_run=args.dry_run, parallel_jobs=args.parallel_jobs)
     setup.skip_gpu_packages = args.multi_env
     setup.ci_test_mode = args.ci_test
+    setup.non_interactive = args.ci_test  # CI test mode should be non-interactive
     
     # CRITICAL FIX: Defer downloads when using multi-env mode
     # This prevents dataset/model managers from being called before the split environments exist

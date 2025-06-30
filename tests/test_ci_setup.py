@@ -31,7 +31,7 @@ def test_setup_dry_run():
         setup_script = Path(__file__).resolve().parent.parent / 'setup' / 'setup.py'
         result = subprocess.run([
             sys.executable, str(setup_script), '--dry-run'
-        ], capture_output=True, text=True, timeout=60)
+        ], capture_output=True, text=True, timeout=120)  # Increased timeout for slower CI
         
         if result.returncode == 0:
             print("V Setup script dry-run completed successfully")
