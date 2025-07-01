@@ -1,51 +1,43 @@
 {
   "success": true,
-  "stages_run": 2,
+  "stages_run": 1,
   "stages_skipped": 0,
-  "total_duration": 41.884979,
-  "start_time": "2025-06-27T19:48:40.242279",
-  "end_time": "2025-06-27T19:49:22.127258",
+  "total_duration": 590.115163,
+  "start_time": "2025-07-01T09:31:12.993579",
+  "end_time": "2025-07-01T09:41:03.108742",
   "results": {
-    "preparation": {
-      "success": true,
-      "data": {
-        "status": "success",
-        "directories_created": [],
-        "input_validation": {
-          "pdfs_found": 56,
-          "config_valid": true,
-          "errors": []
-        },
-        "environment_health": {
-          "python_version": "3.11",
-          "dependencies_available": {
-            "json": true,
-            "pathlib": true,
-            "os": true,
-            "sys": true,
-            "fitz": true,
-            "cv2": true,
-            "numpy": true,
-            "PIL": true
-          },
-          "warnings": []
-        },
-        "config_validated": true
-      },
-      "error": null,
-      "duration": 0.2836148738861084,
-      "timestamp": "2025-06-27T19:48:40.526415"
-    },
     "training": {
       "success": true,
       "data": {
-        "status": "error",
-        "error": "Training failed: Worker training_worker.py failed with code 1\nSTDOUT: DEBUG: Starting training worker with input: {'action': 'train', 'model_path': 'D:\\\\MarMe\\\\github\\\\0.4\\\\plc-data\\\\models\\\\pretrained\\\\yolo11m.pt', 'data_yaml_path': 'D:\\\\MarMe\\\\github\\\\0.4\\\\plc-data\\\\datasets\\\\plc_symbols.yaml', 'epochs': 50, 'batch_size': 16, 'patience': 20, 'project_name': 'plc_symbol_detector_yolo11m', 'output_dir': 'D:\\\\MarMe\\\\github\\\\0.4\\\\plc-data\\\\models', 'config': {}}\nDEBUG: Validating dataset structure...\nValidating dataset structure...\nDataset path: D:\\MarMe\\github\\0.4\\plc-data\\datasets\n\u00e2\u0153\u2026 Found 634 files in train/images\n\u00e2\u0153\u2026 Found 634 files in train/labels\n\u00e2\u0153\u2026 Found 181 files in valid/images\n\u00e2\u0153\u2026 Found 181 files in valid/labels\n\u00e2\u0153\u2026 Found data.yaml at: D:\\MarMe\\github\\0.4\\plc-data\\datasets\\plc_symbols.yaml\nDEBUG: Training parameters:\n  Model: D:\\MarMe\\github\\0.4\\plc-data\\models\\pretrained\\yolo11m.pt\n  Data YAML: D:\\MarMe\\github\\0.4\\plc-data\\datasets\\plc_symbols.yaml\n  Epochs: 50\n  Batch size: 16\n  Project: plc_symbol_detector_yolo11m\nDEBUG: Starting YOLO training...\nAuto-detected device: 0 (CUDA available: True)\nLoading YOLO11 model from: D:\\MarMe\\github\\0.4\\plc-data\\models\\pretrained\\yolo11m.pt\nUsing dataset config: D:\\MarMe\\github\\0.4\\plc-data\\datasets\\plc_symbols.yaml\nTraining runs will be saved to: D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\nCreating C3k2 placeholder for model compatibility\nCreating C3k placeholder for model compatibility\nCreating C2PSA placeholder for model compatibility\nCreating C3k2x placeholder for model compatibility\nCreating C2f2 placeholder for model compatibility\nCreating PSABlock placeholder for model compatibility\nCreating Attention placeholder for model compatibility\nCreating PSA placeholder for model compatibility\nCreating EdgeResidual placeholder for model compatibility\nCreating C2fCIB placeholder for model compatibility\nCreating C2fPSA placeholder for model compatibility\nCreating SCDown placeholder for model compatibility\nNew https://pypi.org/project/ultralytics/8.3.160 available \u00f0\u0178\u02dc\u0192 Update with 'pip install -U ultralytics'\nUltralytics YOLOv8.2.13 \u00f0\u0178\u0161\u20ac Python-3.11.9 torch-2.7.1+cu128 CUDA:0 (Quadro RTX 4000, 8192MiB)\n\u001b[34m\u001b[1mengine\\trainer: \u001b[0mtask=detect, mode=train, model=D:\\MarMe\\github\\0.4\\plc-data\\models\\pretrained\\yolo11m.pt, data=D:\\MarMe\\github\\0.4\\plc-data\\datasets\\plc_symbols.yaml, epochs=50, time=None, patience=20, batch=16, imgsz=640, save=True, save_period=10, cache=False, device=0, workers=8, project=D:\\MarMe\\github\\0.4\\plc-data\\runs\\train, name=plc_symbol_detector_yolo11m, exist_ok=True, pretrained=True, optimizer=auto, verbose=True, seed=0, deterministic=True, single_cls=False, rect=False, cos_lr=False, close_mosaic=10, resume=False, amp=True, fraction=1.0, profile=False, freeze=None, multi_scale=False, overlap_mask=True, mask_ratio=4, dropout=0.0, val=True, split=val, save_json=False, save_hybrid=False, conf=None, iou=0.7, max_det=300, half=False, dnn=False, plots=True, source=None, vid_stride=1, stream_buffer=False, visualize=False, augment=False, agnostic_nms=False, classes=None, retina_masks=False, embed=None, show=False, save_frames=False, save_txt=False, save_conf=False, save_crop=False, show_labels=True, show_conf=True, show_boxes=True, line_width=None, format=torchscript, keras=False, optimize=False, int8=False, dynamic=False, simplify=False, opset=None, workspace=4, nms=False, lr0=0.01, lrf=0.01, momentum=0.937, weight_decay=0.0005, warmup_epochs=3.0, warmup_momentum=0.8, warmup_bias_lr=0.1, box=7.5, cls=0.5, dfl=1.5, pose=12.0, kobj=1.0, label_smoothing=0.0, nbs=64, hsv_h=0.015, hsv_s=0.7, hsv_v=0.4, degrees=0.0, translate=0.1, scale=0.5, shear=0.0, perspective=0.0, flipud=0.0, fliplr=0.5, bgr=0.0, mosaic=1.0, mixup=0.0, copy_paste=0.0, auto_augment=randaugment, erasing=0.4, crop_fraction=1.0, cfg=None, tracker=botsort.yaml, save_dir=D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m\nOverriding model.yaml nc=80 with nc=9\n\n                   from  n    params  module                                       arguments                     \n  0                  -1  1      1856  ultralytics.nn.modules.conv.Conv             [3, 64, 3, 2]                 \n  1                  -1  1     73984  ultralytics.nn.modules.conv.Conv             [64, 128, 3, 2]               \n  2                  -1  1    156672  src.detection.yolo11_train.C3k2              [256, False, 0.25]            \n  3                  -1  1    295424  ultralytics.nn.modules.conv.Conv             [128, 256, 3, 2]              \n  4                  -1  1    624640  src.detection.yolo11_train.C3k2              [512, False, 0.25]            \n  5                  -1  1   1180672  ultralytics.nn.modules.conv.Conv             [256, 512, 3, 2]              \n  6                  -1  1   1838080  src.detection.yolo11_train.C3k2              [512, True]                   \n  7                  -1  1   2360320  ultralytics.nn.modules.conv.Conv             [512, 512, 3, 2]              \n  8                  -1  1   7346176  src.detection.yolo11_train.C3k2              [1024, True]                  \n  9                  -1  1    656896  ultralytics.nn.modules.block.SPPF            [512, 512, 5]                 \n 10                  -1  1     29056  src.detection.yolo11_train.C2PSA             [1024]                        \n 11                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          \n 12             [-1, 6]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           \n 13                  -1  1   1838080  src.detection.yolo11_train.C3k2              [512, False]                  \n 14                  -1  1         0  torch.nn.modules.upsampling.Upsample         [None, 2, 'nearest']          \n 15             [-1, 4]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           \n 16                  -1  1    460288  src.detection.yolo11_train.C3k2              [256, False]                  \n 17                  -1  1   2949632  ultralytics.nn.modules.conv.Conv             [1280, 256, 3, 2]             \n 18            [-1, 13]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           \n 19                  -1  1   1838080  src.detection.yolo11_train.C3k2              [512, False]                  \n 20                  -1  1   5899264  ultralytics.nn.modules.conv.Conv             [1280, 512, 3, 2]             \n 21            [-1, 10]  1         0  ultralytics.nn.modules.conv.Concat           [1]                           \n 22                  -1  1   7346176  src.detection.yolo11_train.C3k2              [1024, True]                  \n 23        [16, 19, 22]  1  98726635  ultralytics.nn.modules.head.Detect           [9, [1280, 1280, 1024]]       \nYOLO11m summary: 226 layers, 133621931 parameters, 133621915 gradients, 610.8 GFLOPs\n\nTransferred 149/355 items from pretrained weights\nFreezing layer 'model.23.dfl.conv.weight'\n\u001b[34m\u001b[1mAMP: \u001b[0mrunning Automatic Mixed Precision (AMP) checks with YOLOv8n...\n\u001b[34m\u001b[1mAMP: \u001b[0mchecks passed \u00e2\u0153\u2026\nERROR: Training worker failed: Traceback (most recent call last):\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\src\\workers\\training_worker.py\", line 76, in main\n    results = train_yolo11(\n              ^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\src\\detection\\yolo11_train.py\", line 155, in train_yolo11\n    results = model.train(\n              ^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\engine\\model.py\", line 674, in train\n    self.trainer.train()\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\engine\\trainer.py\", line 199, in train\n    self._do_train(world_size)\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\engine\\trainer.py\", line 313, in _do_train\n    self._setup_train(world_size)\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\engine\\trainer.py\", line 277, in _setup_train\n    self.train_loader = self.get_dataloader(self.trainset, batch_size=batch_size, rank=RANK, mode=\"train\")\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\models\\yolo\\detect\\train.py\", line 49, in get_dataloader\n    dataset = self.build_dataset(dataset_path, mode, batch_size)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\models\\yolo\\detect\\train.py\", line 43, in build_dataset\n    return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == \"val\", stride=gs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\data\\build.py\", line 87, in build_yolo_dataset\n    return dataset(\n           ^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\data\\dataset.py\", line 64, in __init__\n    super().__init__(*args, **kwargs)\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\data\\base.py\", line 74, in __init__\n    self.labels = self.get_labels()\n                  ^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\data\\dataset.py\", line 138, in get_labels\n    cache, exists = load_dataset_cache_file(cache_path), True  # attempt to load a *.cache file\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\data\\utils.py\", line 661, in load_dataset_cache_file\n    cache = np.load(str(path), allow_pickle=True).item()  # load dict\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\numpy\\lib\\npyio.py\", line 432, in load\n    return format.read_array(fid, allow_pickle=allow_pickle,\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\numpy\\lib\\format.py\", line 793, in read_array\n    array = pickle.load(fp, **pickle_kwargs)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'numpy._core'\nSTDERR: D:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\utils\\checks.py:647: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.\n  with torch.cuda.amp.autocast(True):\nD:\\MarMe\\github\\0.4\\plc-diagram-processor\\environments\\yolo_env\\Lib\\site-packages\\ultralytics\\engine\\trainer.py:262: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.\n  self.scaler = torch.cuda.amp.GradScaler(enabled=self.amp)",
-        "environment": "yolo_env"
+        "status": "success",
+        "environment": "yolo_env",
+        "action": "training",
+        "custom_model_found": false,
+        "training_completed": true,
+        "training_result": {
+          "status": "success",
+          "custom_model_name": "plc_symbol_detector_yolo11m_best.pt",
+          "training_data": {
+            "save_dir": "D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m",
+            "epochs_completed": 2,
+            "best_model_path": "D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m\\weights\\best.pt",
+            "last_model_path": "D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m\\weights\\last.pt",
+            "metrics": {
+              "mAP50": 0.29039414364145594,
+              "mAP50-95": 0.17716205694502446,
+              "precision": 0.5797686380286818,
+              "recall": 0.26047838530497786
+            },
+            "project_name": "plc_symbol_detector_yolo11m"
+          },
+          "epochs_completed": 2,
+          "best_mAP50": 0.0
+        },
+        "message": "Training completed: plc_symbol_detector_yolo11m_best.pt"
       },
       "error": null,
-      "duration": 41.597325801849365,
-      "timestamp": "2025-06-27T19:49:22.126256"
+      "duration": 590.1136269569397,
+      "timestamp": "2025-07-01T09:41:03.108742"
     }
   },
   "ci_mode": false

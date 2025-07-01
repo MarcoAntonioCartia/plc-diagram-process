@@ -130,7 +130,8 @@ class TrainingStage(BaseStage):
             progress.update_progress(f"Starting training with {pretrained_info['model_name']}...")
             training_result = self._run_training_multi_env(env_manager, config, pretrained_info, progress)
             
-            if training_result['status'] == 'success':
+            # Check if training actually succeeded
+            if training_result['status'] == 'success' and 'custom_model_name' in training_result:
                 progress.complete_file("Training", f"Model trained successfully: {training_result['custom_model_name']}")
                 return {
                     'status': 'success',
@@ -142,11 +143,15 @@ class TrainingStage(BaseStage):
                     'message': f"Training completed: {training_result['custom_model_name']}"
                 }
             else:
-                progress.error_file("Training", f"Training failed: {training_result['error']}")
+                # Training failed - extract error message
+                error_msg = training_result.get('error', 'Training failed with unknown error')
+                progress.error_file("Training", f"Training failed: {error_msg}")
+                print(f"X Training stage failed: {error_msg}")
                 return {
                     'status': 'error',
-                    'error': f"Training failed: {training_result['error']}",
-                    'environment': 'yolo_env'
+                    'error': f"Training failed: {error_msg}",
+                    'environment': 'yolo_env',
+                    'training_result': training_result
                 }
             
         except Exception as e:

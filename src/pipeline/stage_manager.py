@@ -212,11 +212,17 @@ class StageManager:
                 }
             stages_to_run = stage_names
         
-        print(f"\nX Starting pipeline execution")
-        print(f"Stages to run: {stages_to_run}")
-        print(f"CI Mode: {self.is_ci}")
-        print(f"Skip completed: {skip_completed}")
-        print(f"Force re-run: {force_stages}")
+        minimal_mode = (
+            os.environ.get("PLCDP_MINIMAL_OUTPUT", "0") == "1" or
+            os.environ.get("PLCDP_QUIET", "0") == "1"
+        )
+        
+        if not minimal_mode:
+            print(f"\nX Starting pipeline execution")
+            print(f"Stages to run: {stages_to_run}")
+            print(f"CI Mode: {self.is_ci}")
+            print(f"Skip completed: {skip_completed}")
+            print(f"Force re-run: {force_stages}")
         
         results = {}
         overall_success = True
@@ -231,7 +237,8 @@ class StageManager:
             # Check if should skip
             if (skip_completed and stage.is_completed() and 
                 stage_name not in force_stages):
-                print(f"X Skipping completed stage: {stage_name}")
+                if not minimal_mode:
+                    print(f"X Skipping completed stage: {stage_name}")
                 results[stage_name] = {
                     'skipped': True,
                     'reason': 'already_completed'
@@ -268,11 +275,12 @@ class StageManager:
         # Save execution summary
         self._save_execution_summary(summary)
         
-        print(f"\nX Pipeline execution completed")
-        print(f"Success: {overall_success}")
-        print(f"Duration: {duration:.2f}s")
-        print(f"Stages run: {summary['stages_run']}")
-        print(f"Stages skipped: {summary['stages_skipped']}")
+        if not minimal_mode:
+            print(f"\nX Pipeline execution completed")
+            print(f"Success: {overall_success}")
+            print(f"Duration: {duration:.2f}s")
+            print(f"Stages run: {summary['stages_run']}")
+            print(f"Stages skipped: {summary['stages_skipped']}")
         
         return summary
     

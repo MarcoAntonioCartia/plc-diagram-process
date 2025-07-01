@@ -56,6 +56,10 @@ def main() -> None:
         except ImportError:
             print("DEBUG: PyTorch not available, skipping compatibility fix")
         
+        # Import compatibility classes first
+        from src.detection.yolo_compatibility import register_compatibility_classes
+        register_compatibility_classes()
+        
         # Import training functions from yolo11_train.py
         from src.detection.yolo11_train import train_yolo11, validate_dataset
         
@@ -91,6 +95,7 @@ def main() -> None:
         print("DEBUG: Starting YOLO training...")
         results = train_yolo11(
             model_name=Path(model_path).name if model_path else 'yolo11m.pt',
+            data_yaml_path=data_yaml_path,  # Pass the correct data yaml path
             epochs=epochs,
             batch=batch_size,
             patience=patience,

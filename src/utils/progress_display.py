@@ -3,6 +3,7 @@ Progress Display Utility
 Provides in-place terminal updates for long-running operations
 """
 
+import os
 import sys
 import threading
 import time
@@ -19,22 +20,45 @@ class ProgressDisplay:
         self.lines: List[str] = []
         self.lock = threading.Lock()
         self.enabled = sys.stdout.isatty()  # Only enable for interactive terminals
+        self.minimal_mode = self._detect_minimal_mode()
+    
+    def _detect_minimal_mode(self) -> bool:
+        """Detect if minimal/single-line mode is enabled"""
+        return (
+            os.environ.get("PLCDP_MINIMAL_OUTPUT", "0") == "1" or
+            os.environ.get("PLCDP_QUIET", "0") == "1"
+        )
+    
+    def _clear_current_line(self):
+        """Clear the current line"""
+        sys.stdout.write('\r\033[K')
+        sys.stdout.flush()
     
     def add_line(self, text: str) -> int:
         """Add a new line and return its index"""
         with self.lock:
             if not self.enabled:
-                print(text)
+                if not self.minimal_mode:
+                    print(text)
                 return len(self.lines)
             
-            self.lines.append(text)
-            print(text)
-            
-            # Keep only the last max_lines
-            if len(self.lines) > self.max_lines:
-                self.lines = self.lines[-self.max_lines:]
-            
-            return len(self.lines) - 1
+            if self.minimal_mode:
+                # In minimal mode, replace current line instead of adding
+                self._clear_current_line()
+                sys.stdout.write(text)
+                sys.stdout.flush()
+                self.lines = [text]  # Keep only current line
+                return 0
+            else:
+                # Normal mode - add new line
+                self.lines.append(text)
+                print(text)
+                
+                # Keep only the last max_lines
+                if len(self.lines) > self.max_lines:
+                    self.lines = self.lines[-self.max_lines:]
+                
+                return len(self.lines) - 1
     
     def update_line(self, line_index: int, text: str):
         """Update a specific line in-place"""
@@ -127,54 +151,84 @@ class StageProgressDisplay:
         self.display = ProgressDisplay(max_lines=3)
         self.current_file_line = None
         self.current_progress_line = None
+        self.minimal_mode = self.display.minimal_mode
     
     def start_stage(self, message: str):
         """Start the stage with an initial message"""
-        self.display.add_line(f"X Starting {self.stage_name}...")
-        if message:
-            self.display.add_line(f"  {message}")
+        if self.minimal_mode:
+            self.display.add_line(f"{self.stage_name}...")
+        else:
+            self.display.add_line(f"X Starting {self.stage_name}...")
+            if message:
+                self.display.add_line(f"  {message}")
     
     def start_file(self, filename: str):
         """Start processing a new file"""
-        text = f"  → Processing: {filename}"
-        if self.current_file_line is not None:
-            self.display.update_line(self.current_file_line, text)
+        if self.minimal_mode:
+            text = f"{self.stage_name}: {filename}..."
+            self.display.add_line(text)
         else:
-            self.current_file_line = self.display.add_line(text)
+            text = f"  → Processing: {filename}"
+            if self.current_file_line is not None:
+                self.display.update_line(self.current_file_line, text)
+            else:
+                self.current_file_line = self.display.add_line(text)
     
     def update_progress(self, message: str):
         """Update the progress message"""
-        text = f"    {message}"
-        if self.current_progress_line is not None:
-            self.display.update_line(self.current_progress_line, text)
+        if self.minimal_mode:
+            # In minimal mode, update the current line with progress
+            text = f"{self.stage_name}: {message}..."
+            self.display.add_line(text)
         else:
-            self.current_progress_line = self.display.add_line(text)
+            text = f"    {message}"
+            if self.current_progress_line is not None:
+                self.display.update_line(self.current_progress_line, text)
+            else:
+                self.current_progress_line = self.display.add_line(text)
     
     def complete_file(self, filename: str, result: str):
         """Complete processing of a file"""
-        if self.current_file_line is not None:
-            self.display.finalize_line(self.current_file_line, f"  ✓ Completed: {filename} - {result}")
+        if self.minimal_mode:
+            # In minimal mode, show completion briefly then move to next
+            text = f"{self.stage_name}: {filename} ✓"
+            self.display.add_line(text)
         else:
-            self.display.add_line(f"  ✓ Completed: {filename} - {result}")
-        
-        # Reset line tracking for next file
-        self.current_file_line = None
-        self.current_progress_line = None
+            if self.current_file_line is not None:
+                self.display.finalize_line(self.current_file_line, f"  ✓ Completed: {filename} - {result}")
+            else:
+                self.display.add_line(f"  ✓ Completed: {filename} - {result}")
+            
+            # Reset line tracking for next file
+            self.current_file_line = None
+            self.current_progress_line = None
     
     def error_file(self, filename: str, error: str):
         """Mark file as failed"""
-        if self.current_file_line is not None:
-            self.display.finalize_line(self.current_file_line, f"  ✗ Failed: {filename} - {error}")
+        if self.minimal_mode:
+            text = f"{self.stage_name}: {filename} ✗ {error}"
+            self.display.add_line(text)
         else:
-            self.display.add_line(f"  ✗ Failed: {filename} - {error}")
-        
-        # Reset line tracking for next file
-        self.current_file_line = None
-        self.current_progress_line = None
+            if self.current_file_line is not None:
+                self.display.finalize_line(self.current_file_line, f"  ✗ Failed: {filename} - {error}")
+            else:
+                self.display.add_line(f"  ✗ Failed: {filename} - {error}")
+            
+            # Reset line tracking for next file
+            self.current_file_line = None
+            self.current_progress_line = None
     
     def complete_stage(self, summary: str):
         """Complete the stage"""
-        self.display.add_line(f"✓ {self.stage_name} completed: {summary}")
+        if self.minimal_mode:
+            text = f"{self.stage_name} ✓"
+            # In minimal mode, finalize the line to keep it visible
+            if self.display.lines:
+                self.display.finalize_last_line(text)
+            else:
+                self.display.add_line(text)
+        else:
+            self.display.add_line(f"✓ {self.stage_name} completed: {summary}")
 
 
 # Global progress display instance for easy access

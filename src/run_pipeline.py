@@ -28,8 +28,14 @@ Examples:
   # Run complete pipeline
   python src/run_pipeline.py --run-all
   
+  # Run with minimal single-line output
+  python src/run_pipeline.py --run-all --minimal
+  
   # Run specific stages
   python src/run_pipeline.py --stages preparation training detection
+  
+  # Run with quiet output (same as minimal)
+  python src/run_pipeline.py --run-all --quiet
   
   # Show pipeline status
   python src/run_pipeline.py --status
@@ -166,12 +172,17 @@ Examples:
     parser.add_argument(
         "--verbose", "-v", 
         action="store_true",
-        help="Enable verbose output"
+        help="Enable verbose output and disable progress bar clearing"
     )
     parser.add_argument(
         "--quiet", "-q", 
         action="store_true",
         help="Suppress non-essential output"
+    )
+    parser.add_argument(
+        "--minimal", 
+        action="store_true",
+        help="Enable minimal single-line output mode"
     )
     parser.add_argument(
         "--json-output", 
@@ -198,6 +209,8 @@ def setup_environment(args) -> None:
         os.environ["PLCDP_VERBOSE"] = "1"
     elif args.quiet:
         os.environ["PLCDP_QUIET"] = "1"
+    elif args.minimal:
+        os.environ["PLCDP_MINIMAL_OUTPUT"] = "1"
 
 
 def load_custom_config(config_path: str) -> Dict[str, Any]:

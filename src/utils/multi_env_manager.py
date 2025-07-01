@@ -355,45 +355,107 @@ class MultiEnvironmentManager:
         if not script_path.exists():
             raise FileNotFoundError(script_path)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
+        # Create temporary files that persist during the entire worker execution
+        tmpdir_path = None
+        input_file = None
+        output_file = None
+        
+        try:
+            # Create temporary directory manually for better control
+            tmpdir_path = Path(tempfile.mkdtemp(prefix=f"plc_worker_{worker_script.replace('.py', '')}_"))
             input_file = tmpdir_path / "in.json"
             output_file = tmpdir_path / "out.json"
-            input_file.write_text(json.dumps(input_payload, indent=2))
+            
+            # Write input file with explicit encoding and flushing
+            with open(input_file, 'w', encoding='utf-8') as f:
+                json.dump(input_payload, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())  # Force write to disk
+            
+            # Verify input file was written correctly
+            if not input_file.exists():
+                raise RuntimeError(f"Failed to create input file: {input_file}")
+            
+            print(f"[MultiEnv] DEBUG: Created temp files in {tmpdir_path}")
+            print(f"[MultiEnv] DEBUG: Input file: {input_file} (exists: {input_file.exists()})")
 
             env_vars = os.environ.copy()
             env_vars["PYTHONPATH"] = str(self.project_root)
 
             MAX_RETRIES = 2
-            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "1800"))  # 30 min default
+            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "3600"))  # Increase to 1 hour for training
 
             attempt = 0
-            while True:
+            while attempt < MAX_RETRIES:
                 attempt += 1
                 try:
-                    completed = subprocess.run(
-                        [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
-                        env=env_vars,
-                        timeout=TIMEOUT_SEC,
-                        capture_output=True,
-                        text=True,
-                        encoding='utf-8',
-                        errors='replace'  # Replace problematic characters instead of crashing
-                    )
-
-                    if completed.returncode != 0:
-                        raise subprocess.CalledProcessError(
-                            completed.returncode, completed.args, output=completed.stdout, stderr=completed.stderr,
+                    print(f"[MultiEnv] Starting worker {worker_script} (attempt {attempt}/{MAX_RETRIES})")
+                    print(f"[MultiEnv] Command: {env.python} {script_path} --input {input_file} --output {output_file}")
+                    
+                    # Check if verbose mode is enabled
+                    verbose_mode = os.environ.get("PLCDP_VERBOSE", "0") == "1"
+                    
+                    if verbose_mode:
+                        # Stream output in real-time for verbose mode
+                        print(f"[MultiEnv] Running in verbose mode - streaming output...")
+                        process = subprocess.Popen(
+                            [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
+                            env=env_vars,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace',
+                            bufsize=1,  # Line buffered
+                            universal_newlines=True
+                        )
+                        
+                        # Stream output line by line
+                        while True:
+                            output = process.stdout.readline()
+                            if output == '' and process.poll() is not None:
+                                break
+                            if output:
+                                print(f"[Worker] {output.strip()}")
+                        
+                        # Wait for completion
+                        return_code = process.wait()
+                        
+                        if return_code != 0:
+                            raise subprocess.CalledProcessError(return_code, process.args)
+                    else:
+                        # Capture output (original behavior)
+                        completed = subprocess.run(
+                            [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
+                            env=env_vars,
+                            timeout=TIMEOUT_SEC,
+                            capture_output=True,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace'  # Replace problematic characters instead of crashing
                         )
 
+                        if completed.returncode != 0:
+                            raise subprocess.CalledProcessError(
+                                completed.returncode, completed.args, output=completed.stdout, stderr=completed.stderr,
+                            )
+
+                    # Check if output file was created
+                    if not output_file.exists():
+                        raise RuntimeError(f"Worker completed but output file not found: {output_file}")
+
                     # Parse result JSON – may still include error status inside
-                    result = json.loads(output_file.read_text())
-                    return result
+                    try:
+                        with open(output_file, 'r', encoding='utf-8') as f:
+                            result = json.load(f)
+                        return result
+                    except json.JSONDecodeError as e:
+                        raise RuntimeError(f"Failed to parse worker output JSON: {e}")
 
                 except subprocess.TimeoutExpired:
                     err = f"Worker {worker_script} timed out after {TIMEOUT_SEC}s (attempt {attempt}/{MAX_RETRIES})"
                     print(f"[MultiEnv] {err}")
-                    if attempt > MAX_RETRIES:
+                    if attempt >= MAX_RETRIES:
                         return {"status": "error", "error": err}
                     continue  # retry
                 except subprocess.CalledProcessError as exc:
@@ -405,9 +467,26 @@ class MultiEnvironmentManager:
                         f"STDERR: {stderr_output}"
                     )
                     print(f"[MultiEnv] {err_msg} (attempt {attempt}/{MAX_RETRIES})")
-                    if attempt > MAX_RETRIES:
+                    if attempt >= MAX_RETRIES:
                         return {"status": "error", "error": err_msg}
                     continue
+                except Exception as exc:
+                    err_msg = f"Worker {worker_script} failed with unexpected error: {exc}"
+                    print(f"[MultiEnv] {err_msg} (attempt {attempt}/{MAX_RETRIES})")
+                    if attempt >= MAX_RETRIES:
+                        return {"status": "error", "error": err_msg}
+                    continue
+            
+            return {"status": "error", "error": f"Worker {worker_script} failed after {MAX_RETRIES} attempts"}
+            
+        finally:
+            # Clean up temporary directory
+            if tmpdir_path and tmpdir_path.exists():
+                try:
+                    shutil.rmtree(tmpdir_path)
+                    print(f"[MultiEnv] DEBUG: Cleaned up temp directory {tmpdir_path}")
+                except Exception as e:
+                    print(f"[MultiEnv] WARNING: Failed to clean up temp directory {tmpdir_path}: {e}")
 
     # ------------------------------------------------------------------
     # Dependency pre-resolution – saves 30 min installs when impossible
