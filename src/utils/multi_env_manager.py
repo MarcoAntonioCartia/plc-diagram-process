@@ -383,7 +383,7 @@ class MultiEnvironmentManager:
             env_vars["PYTHONPATH"] = str(self.project_root)
 
             MAX_RETRIES = 2
-            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "3600"))  # Increase to 1 hour for training
+            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "1800"))  # 30 minutes for training (reduced from 1 hour)
 
             attempt = 0
             while attempt < MAX_RETRIES:

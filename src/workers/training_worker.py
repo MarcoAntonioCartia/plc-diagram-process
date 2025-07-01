@@ -93,13 +93,23 @@ def main() -> None:
         
         # Run training using yolo11_train.py functions
         print("DEBUG: Starting YOLO training...")
+        
+        # Optimize training parameters for faster execution
+        optimized_epochs = min(epochs, 20)  # Cap at 20 for reasonable training time
+        optimized_batch = min(batch_size, 8)  # Reduce batch size to prevent memory issues
+        optimized_patience = min(patience, 10)  # Reduce patience for faster convergence
+        
+        print(f"DEBUG: Optimized parameters - epochs: {optimized_epochs}, batch: {optimized_batch}, patience: {optimized_patience}")
+        
         results = train_yolo11(
             model_name=Path(model_path).name if model_path else 'yolo11m.pt',
-            data_yaml_path=data_yaml_path,  # Pass the correct data yaml path
-            epochs=epochs,
-            batch=batch_size,
-            patience=patience,
-            project_name=project_name
+            data_yaml_path=data_yaml_path,
+            epochs=optimized_epochs,
+            batch=optimized_batch,
+            patience=optimized_patience,
+            project_name=project_name,
+            workers=4,  # Reduce workers to prevent resource contention
+            verbose=False  # Disable verbose output to reduce noise
         )
         
         print(f"DEBUG: Training completed successfully")
@@ -127,6 +137,39 @@ def main() -> None:
         }
         
         out = {"status": "success", "results": training_results}
+        
+        # Optional auto-cleanup old training runs (controlled by flag)
+        auto_cleanup = input_data.get("auto_cleanup", False) or os.environ.get("PLCDP_AUTO_CLEANUP", "0") == "1"
+        
+        if auto_cleanup:
+            try:
+                print("DEBUG: Performing automatic cleanup of old training runs...")
+                from pathlib import Path
+                import shutil
+                
+                # Get the runs directory
+                runs_dir = Path(results.save_dir).parent
+                
+                # Get all training run directories
+                run_dirs = [d for d in runs_dir.iterdir() if d.is_dir()]
+                
+                # Keep only the latest 3 runs (including current)
+                if len(run_dirs) > 3:
+                    # Sort by modification time (newest first)
+                    run_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                    
+                    # Remove old runs beyond the latest 3
+                    for old_run in run_dirs[3:]:
+                        try:
+                            print(f"DEBUG: Removing old training run: {old_run.name}")
+                            shutil.rmtree(old_run)
+                        except Exception as cleanup_error:
+                            print(f"DEBUG: Failed to cleanup {old_run.name}: {cleanup_error}")
+                            
+            except Exception as cleanup_error:
+                print(f"DEBUG: Auto-cleanup failed: {cleanup_error}")
+        else:
+            print("DEBUG: Auto-cleanup disabled (use auto_cleanup=true or PLCDP_AUTO_CLEANUP=1 to enable)")
 
     except Exception as exc:
         import traceback

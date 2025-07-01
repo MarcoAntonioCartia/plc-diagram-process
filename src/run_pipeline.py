@@ -194,6 +194,11 @@ Examples:
         type=str,
         help="Save execution results to file"
     )
+    parser.add_argument(
+        "--auto-cleanup", 
+        action="store_true",
+        help="Enable automatic cleanup of old training runs"
+    )
     
     return parser
 
@@ -211,6 +216,9 @@ def setup_environment(args) -> None:
         os.environ["PLCDP_QUIET"] = "1"
     elif args.minimal:
         os.environ["PLCDP_MINIMAL_OUTPUT"] = "1"
+    
+    if args.auto_cleanup:
+        os.environ["PLCDP_AUTO_CLEANUP"] = "1"
 
 
 def load_custom_config(config_path: str) -> Dict[str, Any]:

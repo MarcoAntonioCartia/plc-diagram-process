@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "data": {
+    "status": "error",
+    "error": "Training failed: Worker training_worker.py failed with code 1\nSTDOUT: No stdout\nSTDERR: No stderr",
+    "environment": "yolo_env",
+    "training_result": {
+      "status": "error",
+      "error": "Worker training_worker.py failed with code 1\nSTDOUT: No stdout\nSTDERR: No stderr"
+    }
+  },
+  "error": null,
+  "duration": 10.168226718902588,
+  "timestamp": "2025-07-01T11:14:58.783470"
+}

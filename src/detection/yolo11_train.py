@@ -29,7 +29,8 @@ def train_yolo11(
     save_period=10,
     device=None,
     workers=8,
-    project_name="plc_symbol_detector_yolo11m"
+    project_name="plc_symbol_detector_yolo11m",
+    verbose=True
 ):
     """
     Train YOLO11 model for PLC symbol detection using configuration management
@@ -131,6 +132,15 @@ def train_yolo11(
         # Load pretrained YOLO11 model
         model = YOLO(str(model_path))
         
+        # Suppress YOLO's verbose output if requested
+        if not verbose:
+            # Redirect YOLO's internal logging to reduce noise
+            import logging
+            logging.getLogger('ultralytics').setLevel(logging.WARNING)
+            
+            # Also suppress tqdm progress bars
+            os.environ['TQDM_DISABLE'] = '1'
+        
         # Train the model (this will also use our patched torch.load)
         results = model.train(
             data=str(data_yaml_path),
@@ -144,10 +154,18 @@ def train_yolo11(
             patience=patience,
             device=device,
             workers=workers,
-            verbose=True,
+            verbose=verbose,
             exist_ok=True,  # Allow overwriting existing runs
-            cache=False  # Disable caching to avoid numpy._core compatibility issues
+            cache=False,  # Disable caching to avoid numpy._core compatibility issues
+            plots=False,  # Disable plot generation to save time
+            val=True,  # Keep validation enabled
+            amp=True,  # Enable automatic mixed precision for better performance
+            close_mosaic=10  # Close mosaic augmentation early for faster convergence
         )
+        
+        # Restore tqdm if it was disabled
+        if not verbose and 'TQDM_DISABLE' in os.environ:
+            del os.environ['TQDM_DISABLE']
         
     finally:
         # Always restore original torch.load
