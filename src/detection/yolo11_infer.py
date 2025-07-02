@@ -68,76 +68,9 @@ def load_model(model_path=None):
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
     
-    # Use the centralized compatibility placeholders so we don't duplicate logic
-    try:
-        from src.detection.yolo_compatibility import register_compatibility_classes
-        register_compatibility_classes()
-    except Exception as e:
-        print(f"Warning: Could not register YOLO compatibility classes: {e}")
-    
-    # Always use weights_only=False for YOLO models since they contain custom classes
-    original_torch_load = torch.load
-    
-    def safe_torch_load(f, map_location=None, pickle_module=None, weights_only=None, **kwargs):
-        # Force weights_only=False for YOLO models to avoid security restrictions
-        return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, 
-                                 weights_only=False, **kwargs)
-    
-    try:
-        torch.load = safe_torch_load
-        model = YOLO(str(model_path))
-        return model
-    except Exception as e:
-        # Restore original torch.load in case of error
-        torch.load = original_torch_load
-        # If safe_globals fails, try with weights_only=False for trusted models
-        print(f"Warning: Safe loading failed ({e}), falling back to weights_only=False")
-        
-        # Handle missing classes by creating dummy placeholders
-        error_str = str(e)
-        if "Can't get attribute" in error_str and "ultralytics.nn.modules" in error_str:
-            # Extract the missing class name
-            import re
-            match = re.search(r"Can't get attribute '(\w+)'", error_str)
-            if match:
-                missing_class = match.group(1)
-                print(f"Warning: Missing class {missing_class}, creating placeholder")
-                
-                # Create a dummy class as placeholder
-                import ultralytics.nn.modules.block as block_module
-                from ultralytics.nn.modules.block import C2f  # Use C2f as base
-                
-                # Create dummy class that inherits from C2f
-                dummy_class = type(missing_class, (C2f,), {})
-                setattr(block_module, missing_class, dummy_class)
-                
-                # Try loading again with the placeholder
-                try:
-                    model = YOLO(str(model_path))
-                    print(f"Successfully loaded model with {missing_class} placeholder")
-                    return model
-                except Exception as e2:
-                    print(f"Still failed after creating placeholder: {e2}")
-        
-        # Monkey patch torch.load to use weights_only=False as fallback
-        original_torch_load = torch.load
-        
-        def fallback_torch_load(f, map_location=None, pickle_module=None, weights_only=None, **kwargs):
-            # Force weights_only=False for trusted YOLO models
-            return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, 
-                                     weights_only=False, **kwargs)
-        
-        try:
-            torch.load = fallback_torch_load
-            model = YOLO(str(model_path))
-            
-            return model
-        finally:
-            # Always restore original torch.load
-            torch.load = original_torch_load
-    
-    # This should never be reached, but just in case
-    raise RuntimeError(f"Failed to load YOLO model: {model_path}")
+    # Load YOLO model - with updated Ultralytics, no patches needed
+    model = YOLO(str(model_path))
+    return model
 
 def predict_image(model, image_path, conf_threshold=0.25, save_results=True, output_dir=None):
     """

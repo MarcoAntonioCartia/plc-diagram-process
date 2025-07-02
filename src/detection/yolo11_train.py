@@ -13,10 +13,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 from config import get_config
 
 def get_best_device():
-    """Get the best available device, working around Ultralytics' auto detection issues."""
+    """Get the best available device for training."""
     if torch.cuda.is_available():
-        # Return '0' for first GPU instead of 'auto' which seems buggy
-        return '0'
+        return '0'  # Use first GPU
     else:
         return 'cpu'
 
@@ -60,118 +59,39 @@ def train_yolo11(
     print(f"Loading YOLO11 model from: {model_path}")
     print(f"Using dataset config: {data_yaml_path}")
     print(f"Training runs will be saved to: {runs_path}")
-
-    #breakpoint()
     
-    # Apply PyTorch 2.6 compatibility fix for YOLO model loading
-    original_torch_load = torch.load
+    # Load pretrained YOLO11 model - with updated Ultralytics, no patches needed
+    model = YOLO(str(model_path))
     
-    def safe_torch_load(f, map_location=None, pickle_module=None, weights_only=None, **kwargs):
-        # Force weights_only=False for YOLO models to avoid security restrictions
-        return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, 
-                                 weights_only=False, **kwargs)
+    # Suppress YOLO's verbose output if requested
+    if not verbose:
+        import logging
+        logging.getLogger('ultralytics').setLevel(logging.WARNING)
+        os.environ['TQDM_DISABLE'] = '1'
     
-    # Import compatibility classes from dedicated module
-    try:
-        from .yolo_compatibility import register_compatibility_classes
-        register_compatibility_classes()
-    except Exception as e:
-        print(f"Warning: Could not import compatibility classes: {e}")
+    # Train the model using standard Ultralytics training
+    results = model.train(
+        data=str(data_yaml_path),
+        epochs=epochs,
+        imgsz=640,
+        batch=batch,
+        name=project_name,
+        project=str(runs_path),
+        save=True,
+        save_period=save_period,
+        patience=patience,
+        device=device,
+        workers=workers,
+        verbose=verbose,
+        exist_ok=True,  # Allow overwriting existing runs
+        val=True,  # Keep validation enabled
+        amp=True,  # Enable automatic mixed precision for better performance
+        close_mosaic=10  # Close mosaic augmentation early for faster convergence
+    )
     
-    # Apply global torch.load patch for all YOLO operations
-    torch.load = safe_torch_load
-    
-    # Patch numpy.load to handle numpy._core compatibility issues
-    import numpy as np
-    original_np_load = np.load
-    
-    def safe_np_load(file, *args, **kwargs):
-        """Safe numpy load that handles version compatibility issues"""
-        try:
-            return original_np_load(file, *args, **kwargs)
-        except ModuleNotFoundError as e:
-            if "numpy._core" in str(e):
-                # If it's a numpy._core issue, try to return None which will force regeneration
-                print("Warning: Skipping incompatible numpy cache file due to version mismatch")
-                return None
-            raise
-    
-    np.load = safe_np_load
-    
-    # Also patch the load_dataset_cache_file function directly
-    try:
-        import ultralytics.data.utils as data_utils
-        original_load_cache = data_utils.load_dataset_cache_file
-        
-        def safe_load_cache(path):
-            """Safe cache loader that handles numpy compatibility"""
-            try:
-                return original_load_cache(path)
-            except Exception as e:
-                if "numpy._core" in str(e) or "ModuleNotFoundError" in str(type(e)):
-                    print(f"Warning: Cache file incompatible, will regenerate: {path}")
-                    return None
-                raise
-        
-        data_utils.load_dataset_cache_file = safe_load_cache
-    except Exception:
-        pass
-    
-    # Clear any problematic cache files that might cause numpy._core issues
-    try:
-        import glob
-        cache_files = glob.glob(str(config.get_dataset_path()) + "/**/*.cache", recursive=True)
-        for cache_file in cache_files:
-            try:
-                os.remove(cache_file)
-                print(f"Removed problematic cache file: {cache_file}")
-            except Exception:
-                pass
-    except Exception:
-        pass
-    
-    try:
-        # Load pretrained YOLO11 model
-        model = YOLO(str(model_path))
-        
-        # Suppress YOLO's verbose output if requested
-        if not verbose:
-            # Redirect YOLO's internal logging to reduce noise
-            import logging
-            logging.getLogger('ultralytics').setLevel(logging.WARNING)
-            
-            # Also suppress tqdm progress bars
-            os.environ['TQDM_DISABLE'] = '1'
-        
-        # Train the model (this will also use our patched torch.load)
-        results = model.train(
-            data=str(data_yaml_path),
-            epochs=epochs,
-            imgsz=640,
-            batch=batch,
-            name=project_name,
-            project=str(runs_path),
-            save=True,
-            save_period=save_period,
-            patience=patience,
-            device=device,
-            workers=workers,
-            verbose=verbose,
-            exist_ok=True,  # Allow overwriting existing runs
-            cache=False,  # Disable caching to avoid numpy._core compatibility issues
-            plots=False,  # Disable plot generation to save time
-            val=True,  # Keep validation enabled
-            amp=True,  # Enable automatic mixed precision for better performance
-            close_mosaic=10  # Close mosaic augmentation early for faster convergence
-        )
-        
-        # Restore tqdm if it was disabled
-        if not verbose and 'TQDM_DISABLE' in os.environ:
-            del os.environ['TQDM_DISABLE']
-        
-    finally:
-        # Always restore original torch.load
-        torch.load = original_torch_load
+    # Restore tqdm if it was disabled
+    if not verbose and 'TQDM_DISABLE' in os.environ:
+        del os.environ['TQDM_DISABLE']
     
     print("Training finished!")
     print(f"Results saved to: {results.save_dir}")

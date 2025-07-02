@@ -145,9 +145,17 @@ class SCDown(RobustPlaceholder):
 
 
 def register_compatibility_classes():
-    """Register all compatibility classes with ultralytics modules"""
+    """Register compatibility classes only if they don't exist natively"""
     try:
         import ultralytics.nn.modules.block as block_module
+        
+        # Check if C3k2 exists natively (it should with updated Ultralytics)
+        if hasattr(block_module, 'C3k2'):
+            print("Native Ultralytics classes available, compatibility not needed")
+            return True
+        
+        print("Native classes missing, registering compatibility placeholders...")
+        
         import ultralytics.nn.tasks as tasks_module
         
         # Get all compatibility classes from this module
@@ -177,7 +185,7 @@ def register_compatibility_classes():
         
         for class_name, class_obj in compatibility_classes.items():
             if not hasattr(block_module, class_name):
-                print(f"Creating {class_name} placeholder for model compatibility")
+                print(f"  - Registering {class_name} placeholder")
                 setattr(block_module, class_name, class_obj)
                 # Also add to tasks module globals for model parsing
                 setattr(tasks_module, class_name, class_obj)
@@ -189,5 +197,5 @@ def register_compatibility_classes():
         return False
 
 
-# Auto-register when module is imported
-register_compatibility_classes()
+# Don't auto-register on import - let scripts call it explicitly if needed
+# register_compatibility_classes()
