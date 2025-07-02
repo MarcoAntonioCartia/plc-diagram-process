@@ -68,27 +68,12 @@ def load_model(model_path=None):
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
     
-    # Proactively create missing class placeholders for version compatibility
+    # Use the centralized compatibility placeholders so we don't duplicate logic
     try:
-        import ultralytics.nn.modules.block as block_module
-        from ultralytics.nn.modules.block import C2f
-        
-        # Create all common missing classes upfront
-        missing_classes = [
-            'C3k2', 'C3k', 'C3', 'C2PSA', 'C3TR', 'C3Ghost', 'RepC3', 
-            'GhostBottleneck', 'RepConv', 'C3x', 'C3k2x', 'C2f2',
-            'PSABlock', 'Attention', 'PSA', 'C2fAttn', 'ImagePoolingAttn',
-            'EdgeResidual', 'C2fCIB', 'C2fPSA', 'SCDown'
-        ]
-        
-        for class_name in missing_classes:
-            if not hasattr(block_module, class_name):
-                print(f"Creating {class_name} placeholder for model compatibility")
-                placeholder = type(class_name, (C2f,), {})
-                setattr(block_module, class_name, placeholder)
-        
+        from src.detection.yolo_compatibility import register_compatibility_classes
+        register_compatibility_classes()
     except Exception as e:
-        print(f"Warning: Could not create class placeholders: {e}")
+        print(f"Warning: Could not register YOLO compatibility classes: {e}")
     
     # Always use weights_only=False for YOLO models since they contain custom classes
     original_torch_load = torch.load

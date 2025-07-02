@@ -60,6 +60,8 @@ def train_yolo11(
     print(f"Loading YOLO11 model from: {model_path}")
     print(f"Using dataset config: {data_yaml_path}")
     print(f"Training runs will be saved to: {runs_path}")
+
+    #breakpoint()
     
     # Apply PyTorch 2.6 compatibility fix for YOLO model loading
     original_torch_load = torch.load

@@ -144,7 +144,6 @@ def main() -> None:
         if auto_cleanup:
             try:
                 print("DEBUG: Performing automatic cleanup of old training runs...")
-                from pathlib import Path
                 import shutil
                 
                 # Get the runs directory

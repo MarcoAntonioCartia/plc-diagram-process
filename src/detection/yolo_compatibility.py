@@ -6,75 +6,56 @@ Provides placeholder classes for YOLO model compatibility across versions
 import torch
 import torch.nn as nn
 
-try:
-    from ultralytics.nn.modules.block import C2f
-    BASE_CLASS = C2f
-except ImportError:
-    # Fallback if C2f is not available
-    BASE_CLASS = nn.Module
 
+class RobustPlaceholder(nn.Module):
+    """Drop-in replacement for unknown YOLO layers.
 
-class RobustPlaceholder(BASE_CLASS):
-    """Robust placeholder that handles tensor creation properly and can be pickled"""
-    
-    def __init__(self, *args, **kwargs):
-        # Handle variable arguments from YOLO model parser
-        # Common patterns: [c1, c2, n, shortcut, g, e] or [c1, shortcut, e]
-        try:
-            if len(args) >= 2:
-                c1, c2 = args[0], args[0]  # Use same value for both if only one provided
-                if len(args) >= 3:
-                    # Handle different argument patterns
-                    if isinstance(args[1], bool):  # [c1, shortcut, e] pattern
-                        shortcut = args[1]
-                        e = args[2] if len(args) > 2 else 0.5
-                        n = kwargs.get('n', 1)
-                        g = kwargs.get('g', 1)
-                    else:  # [c1, c2, ...] pattern
-                        c2 = args[1]
-                        n = args[2] if len(args) > 2 else kwargs.get('n', 1)
-                        shortcut = args[3] if len(args) > 3 else kwargs.get('shortcut', False)
-                        g = args[4] if len(args) > 4 else kwargs.get('g', 1)
-                        e = args[5] if len(args) > 5 else kwargs.get('e', 0.5)
-                else:
-                    n = kwargs.get('n', 1)
-                    shortcut = kwargs.get('shortcut', False)
-                    g = kwargs.get('g', 1)
-                    e = kwargs.get('e', 0.5)
-            else:
-                # Fallback defaults
-                c1, c2 = 64, 64
-                n = kwargs.get('n', 1)
-                shortcut = kwargs.get('shortcut', False)
-                g = kwargs.get('g', 1)
-                e = kwargs.get('e', 0.5)
-            
-            # Ensure we have valid tensor parameters
-            if c1 is None or c2 is None:
-                c1, c2 = 64, 64  # Default safe values
-            
-            if BASE_CLASS != nn.Module:
-                super().__init__(c1, c2, n, shortcut, g, e)
-            else:
-                nn.Module.__init__(self)
-                self.c = c1
-                
-        except Exception as ex:
-            # Fallback to simple identity if C2f fails
-            print(f"Warning: Placeholder fallback for {args}, {kwargs}: {ex}")
-            nn.Module.__init__(self)
-            self.c = args[0] if args else 64
-    
-    def forward(self, x):
-        try:
-            if BASE_CLASS != nn.Module:
-                return super().forward(x)
-            else:
-                # Simple identity fallback
-                return x
-        except Exception:
-            # Fallback to identity
-            return x
+    The original layer definitions (e.g. *C3k2*, *RepC3*, …) may modify the
+    number of channels flowing through the network.  Loading a model that was
+    trained with such layers would therefore break if we replaced them with a
+    pure identity mapping because subsequent convolutions would receive an
+    unexpected number of channels.  To preserve the tensor **shape** we do the
+    following:
+
+    1. Parse the constructor arguments that the Ultralytics model parser passes
+       to each module.  The first positional argument is always the number of
+       input channels *c1*.  If a second positional argument is provided *and*
+       is an ``int`` we treat it as the desired output channel count *c2*;
+       otherwise we fall back to *c1* (i.e. keep channels unchanged).
+    2. If ``c1 == c2`` we can safely act as an identity layer.
+    3. If the channel count needs to change we insert a lightweight ``1×1``
+       convolution to adapt the feature map.  This adds a negligible amount of
+       compute while maintaining compatibility with the rest of the network.
+    """
+
+    def __init__(self, *args, **kwargs):  # pylint: disable=unused-argument
+        super().__init__()
+
+        # --- Parse the incoming channel dimensions ---------------------------------
+        c1 = args[0] if args else kwargs.get("c1", 64)
+
+        # If the second positional argument is a bool it is probably the
+        # *shortcut* flag, not *c2*.
+        if len(args) >= 2 and isinstance(args[1], int):
+            c2 = args[1]
+        else:
+            c2 = c1  # Default to preserving channel count
+
+        self._needs_projection = c1 != c2
+
+        if self._needs_projection:
+            # 1×1 convolution to match channel dimensions
+            self.proj = nn.Conv2d(c1, c2, kernel_size=1, stride=1, bias=False)
+        else:
+            self.proj = nn.Identity()
+
+        # Ultralytics sets the attribute ``c`` on every module to signal the
+        # number of output channels to the layer parser.
+        self.c = c2
+
+    # --------------------------------------------------------------------- forward
+    def forward(self, x: torch.Tensor):  # noqa: D401, pylint: disable=arguments-differ
+        return self.proj(x)
 
 
 # Define all compatibility classes as proper classes that can be pickled
