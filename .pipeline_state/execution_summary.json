@@ -2,16 +2,16 @@
   "success": false,
   "stages_run": 1,
   "stages_skipped": 0,
-  "total_duration": 0.001,
-  "start_time": "2025-07-02T16:42:12.560952",
-  "end_time": "2025-07-02T16:42:12.561952",
+  "total_duration": 0.005552,
+  "start_time": "2025-07-02T18:12:48.951409",
+  "end_time": "2025-07-02T18:12:48.956961",
   "results": {
-    "detection": {
+    "ocr": {
       "success": false,
       "data": {},
       "error": "Stage dependencies not met",
-      "duration": 0.0,
-      "timestamp": "2025-07-02T16:42:12.561952"
+      "duration": 0.0010356903076171875,
+      "timestamp": "2025-07-02T18:12:48.955969"
     }
   },
   "ci_mode": false

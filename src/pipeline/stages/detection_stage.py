@@ -75,72 +75,65 @@ class DetectionStage(BaseStage):
                     'environment': 'multi'
                 }
             
-            # Process each PDF file
+            # Process all PDF files at once (the worker handles multiple files)
             results = []
-            for i, pdf_file in enumerate(pdf_files, 1):
-                try:
-                    # Update progress
-                    progress.start_file(f"{pdf_file.name} ({i}/{len(pdf_files)})")
-                    progress.update_progress("Initializing detection...")
+            
+            # Update progress
+            progress.start_file(f"Processing {len(pdf_files)} PDF files")
+            progress.update_progress("Initializing detection...")
+            
+            # Prepare detection payload for all files
+            detection_payload = {
+                'action': 'detect',
+                'pdf_folder': str(pdf_dir),  # Use folder instead of individual files
+                'output_dir': str(data_root / "processed" / "detdiagrams"),
+                'config': self.config
+            }
+            
+            progress.update_progress("Running YOLO detection on all files...")
+            
+            # Run detection worker once for all files
+            result = env_manager.run_detection_pipeline(detection_payload)
+            
+            if result.get('status') == 'success':
+                detection_data = result.get('results', {})
+                
+                # Handle structured response from updated detection worker
+                if isinstance(detection_data, dict):
+                    total_detections = detection_data.get('total_detections', 0)
+                    output_directory = detection_data.get('output_directory', '')
+                    detection_files = detection_data.get('detection_files_created', [])
+                    processing_summary = detection_data.get('processing_summary', 'Completed')
+                    processed_pdfs = detection_data.get('processed_pdfs', len(pdf_files))
                     
-                    # Prepare detection payload
-                    detection_payload = {
-                        'action': 'detect',
-                        'pdf_path': str(pdf_file),
-                        'output_dir': str(data_root / "processed" / "detdiagrams"),
-                        'config': self.config
-                    }
+                    progress.complete_file(f"All {processed_pdfs} files", f"{total_detections} total detections")
                     
-                    progress.update_progress("Running YOLO detection...")
-                    
-                    # Run detection worker
-                    result = env_manager.run_detection_pipeline(detection_payload)
-                    
-                    if result.get('status') == 'success':
-                        detection_data = result.get('results', {})
-                        
-                        # Handle structured response from updated detection worker
-                        if isinstance(detection_data, dict):
-                            total_detections = detection_data.get('total_detections', 0)
-                            output_directory = detection_data.get('output_directory', '')
-                            detection_files = detection_data.get('detection_files_created', [])
-                            processing_summary = detection_data.get('processing_summary', 'Completed')
-                            
-                            progress.complete_file(pdf_file.name, f"{total_detections} detections")
-                            
-                            results.append({
-                                'pdf_file': pdf_file.name,
-                                'success': True,
-                                'detections': total_detections,
-                                'output_directory': output_directory,
-                                'detection_files': detection_files
-                            })
-                        else:
-                            # Fallback for legacy string response
-                            total_detections = 0
-                            progress.complete_file(pdf_file.name, f"Completed (legacy format)")
-                            results.append({
-                                'pdf_file': pdf_file.name,
-                                'success': True,
-                                'detections': total_detections
-                            })
-                    else:
-                        error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
-                        progress.error_file(pdf_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
-                        results.append({
-                            'pdf_file': pdf_file.name,
-                            'success': False,
-                            'error': error_msg
-                        })
-                        
-                except Exception as e:
-                    error_msg = str(e)
-                    progress.error_file(pdf_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
+                    # Create a single result entry for all files
                     results.append({
-                        'pdf_file': pdf_file.name,
-                        'success': False,
-                        'error': error_msg
+                        'batch_processing': True,
+                        'success': True,
+                        'detections': total_detections,
+                        'output_directory': output_directory,
+                        'detection_files': detection_files,
+                        'processed_files': processed_pdfs
                     })
+                else:
+                    # Fallback for legacy string response
+                    total_detections = 0
+                    progress.complete_file("All files", f"Completed (legacy format)")
+                    results.append({
+                        'batch_processing': True,
+                        'success': True,
+                        'detections': total_detections
+                    })
+            else:
+                error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
+                progress.error_file("Batch processing", error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
+                results.append({
+                    'batch_processing': True,
+                    'success': False,
+                    'error': error_msg
+                })
             
             # Calculate summary and collect output information
             successful = sum(1 for r in results if r['success'])

@@ -8,7 +8,6 @@ import argparse
 from pathlib import Path
 import sys
 import subprocess
-from ultralytics import YOLO
 
 # Add project root to path for imports
 project_root = Path(__file__).resolve().parent.parent.parent
