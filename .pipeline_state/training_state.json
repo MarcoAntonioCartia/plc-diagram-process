@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "data": {
+    "status": "success",
+    "environment": "yolo_env",
+    "action": "training",
+    "custom_model_found": false,
+    "training_completed": true,
+    "training_result": {
+      "status": "success",
+      "custom_model_name": "plc_symbol_detector_yolo11m_best.pt",
+      "custom_model_path": "D:\\MarMe\\github\\0.4\\plc-data\\models\\custom\\plc_symbol_detector_yolo11m_best.pt",
+      "training_data": {
+        "save_dir": "D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m",
+        "epochs_completed": 5,
+        "best_model_path": "D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m\\weights\\best.pt",
+        "last_model_path": "D:\\MarMe\\github\\0.4\\plc-data\\runs\\train\\plc_symbol_detector_yolo11m\\weights\\last.pt",
+        "metrics": {},
+        "project_name": "plc_symbol_detector_yolo11m",
+        "stdout": "",
+        "stderr": ""
+      },
+      "epochs_completed": 5,
+      "best_mAP50": 0.0
+    },
+    "message": "Training completed: plc_symbol_detector_yolo11m_best.pt"
+  },
+  "error": null,
+  "duration": 190.08943557739258,
+  "timestamp": "2025-07-02T17:37:38.491207"
+}
