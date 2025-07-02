@@ -25,6 +25,6 @@
     "message": "Training completed: plc_symbol_detector_yolo11m_best.pt"
   },
   "error": null,
-  "duration": 193.31325125694275,
-  "timestamp": "2025-07-02T14:48:24.715697"
+  "duration": 178.186861038208,
+  "timestamp": "2025-07-02T14:57:18.145501"
 }
