@@ -98,20 +98,32 @@ class DetectionStage(BaseStage):
                     
                     if result.get('status') == 'success':
                         detection_data = result.get('results', {})
-                        # Handle case where results might be a string instead of dict
-                        if isinstance(detection_data, str):
-                            # Parse the string result or use a default
-                            total_detections = 0
-                            progress.complete_file(pdf_file.name, f"Completed")
-                        else:
-                            total_detections = detection_data.get('total_detections', 0) if isinstance(detection_data, dict) else 0
-                            progress.complete_file(pdf_file.name, f"{total_detections} detections")
                         
-                        results.append({
-                            'pdf_file': pdf_file.name,
-                            'success': True,
-                            'detections': total_detections
-                        })
+                        # Handle structured response from updated detection worker
+                        if isinstance(detection_data, dict):
+                            total_detections = detection_data.get('total_detections', 0)
+                            output_directory = detection_data.get('output_directory', '')
+                            detection_files = detection_data.get('detection_files_created', [])
+                            processing_summary = detection_data.get('processing_summary', 'Completed')
+                            
+                            progress.complete_file(pdf_file.name, f"{total_detections} detections")
+                            
+                            results.append({
+                                'pdf_file': pdf_file.name,
+                                'success': True,
+                                'detections': total_detections,
+                                'output_directory': output_directory,
+                                'detection_files': detection_files
+                            })
+                        else:
+                            # Fallback for legacy string response
+                            total_detections = 0
+                            progress.complete_file(pdf_file.name, f"Completed (legacy format)")
+                            results.append({
+                                'pdf_file': pdf_file.name,
+                                'success': True,
+                                'detections': total_detections
+                            })
                     else:
                         error_msg = result.get('error', 'Unknown error') if isinstance(result, dict) else str(result)
                         progress.error_file(pdf_file.name, error_msg[:50] + "..." if len(error_msg) > 50 else error_msg)
@@ -130,9 +142,24 @@ class DetectionStage(BaseStage):
                         'error': error_msg
                     })
             
-            # Calculate summary
+            # Calculate summary and collect output information
             successful = sum(1 for r in results if r['success'])
             total_detections = sum(r.get('detections', 0) for r in results if r['success'])
+            
+            # Collect all detection files and output directories from successful results
+            all_detection_files = []
+            output_directories = set()
+            
+            for r in results:
+                if r['success'] and 'detection_files' in r:
+                    all_detection_files.extend(r['detection_files'])
+                if r['success'] and 'output_directory' in r:
+                    output_directories.add(r['output_directory'])
+            
+            # Use the main output directory (should be consistent across all files)
+            main_output_dir = str(data_root / "processed" / "detdiagrams")
+            if output_directories:
+                main_output_dir = list(output_directories)[0]  # Use first found directory
             
             progress.complete_stage(f"{successful}/{len(pdf_files)} files, {total_detections} total detections")
             
@@ -142,6 +169,8 @@ class DetectionStage(BaseStage):
                 'files_processed': len(pdf_files),
                 'successful_files': successful,
                 'total_detections': total_detections,
+                'output_directory': main_output_dir,
+                'detection_files_created': all_detection_files,
                 'results': results
             }
             

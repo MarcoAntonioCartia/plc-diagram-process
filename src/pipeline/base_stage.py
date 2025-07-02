@@ -115,6 +115,25 @@ class BaseStage(ABC):
             print(f"Warning: Could not load state for {self.name}: {e}")
             return None
     
+    def get_dependency_state(self, dependency_name: str) -> Optional[StageResult]:
+        """Load state of a dependency stage"""
+        if not self.state_file:
+            return None
+        
+        state_dir = self.state_file.parent
+        dep_state_file = state_dir / f"{dependency_name}_state.json"
+        
+        if not dep_state_file.exists():
+            return None
+        
+        try:
+            with open(dep_state_file, 'r') as f:
+                state = json.load(f)
+            return StageResult.from_dict(state)
+        except Exception as e:
+            print(f"Warning: Could not load dependency state for {dependency_name}: {e}")
+            return None
+    
     def save_state(self, result: StageResult) -> None:
         """Save stage state"""
         if not self.state_file:

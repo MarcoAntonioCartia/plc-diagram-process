@@ -61,21 +61,45 @@ class OcrStage(BaseStage):
             project_root = Path(__file__).resolve().parent.parent.parent.parent
             env_manager = MultiEnvironmentManager(project_root)
             
-            # Get detection files to process
-            data_root = Path(config.config["data_root"])
-            detection_dir = data_root / "processed" / "detdiagrams"
-            
-            if not detection_dir.exists():
-                progress.complete_stage("No detection files found to process")
+            # Get detection output directory from detection stage state
+            detection_state = self.get_dependency_state('detection')
+            if not detection_state or not detection_state.success:
+                progress.complete_stage("Detection stage not completed successfully")
                 return {
-                    'status': 'success',
-                    'message': 'No detection files found to process',
-                    'files_processed': [],
+                    'status': 'error',
+                    'error': 'Detection stage not completed successfully',
                     'environment': 'multi'
                 }
             
-            # Find detection files
-            detection_files = list(detection_dir.rglob("*_detections.json"))
+            detection_data = detection_state.data
+            detection_dir_path = detection_data.get('output_directory')
+            detection_files_from_state = detection_data.get('detection_files_created', [])
+            
+            if not detection_dir_path:
+                progress.complete_stage("Detection stage did not provide output directory")
+                return {
+                    'status': 'error',
+                    'error': 'Detection stage did not provide output directory',
+                    'environment': 'multi'
+                }
+            
+            detection_dir = Path(detection_dir_path)
+            
+            if not detection_dir.exists():
+                progress.complete_stage(f"Detection output directory does not exist: {detection_dir}")
+                return {
+                    'status': 'error',
+                    'error': f'Detection output directory does not exist: {detection_dir}',
+                    'environment': 'multi'
+                }
+            
+            # Use detection files from state if available, otherwise search directory
+            if detection_files_from_state:
+                detection_files = [Path(f) for f in detection_files_from_state if Path(f).exists()]
+                print(f"Using {len(detection_files)} detection files from detection stage state")
+            else:
+                detection_files = list(detection_dir.rglob("*_detections.json"))
+                print(f"Found {len(detection_files)} detection files in directory")
             
             if not detection_files:
                 progress.complete_stage("No detection files found to process")
@@ -95,6 +119,7 @@ class OcrStage(BaseStage):
                     progress.update_progress("Initializing OCR...")
                     
                     # Prepare OCR payload
+                    data_root = Path(config.config["data_root"])
                     ocr_payload = {
                         'action': 'extract_text',
                         'detection_file': str(detection_file),
@@ -274,9 +299,44 @@ class OcrStage(BaseStage):
     
     def validate_inputs(self) -> bool:
         """Validate stage inputs"""
-        # Check if detection stage completed
-        if not self.check_dependencies():
-            print("X Detection stage not completed")
+        # Check if detection stage completed and get its output
+        detection_state = self.get_dependency_state('detection')
+        if not detection_state or not detection_state.success:
+            print("X Detection stage not completed successfully")
             return False
+        
+        # Get detection output directory from detection stage state
+        detection_data = detection_state.data
+        detection_dir = detection_data.get('output_directory')
+        detection_files = detection_data.get('detection_files_created', [])
+        
+        if not detection_dir:
+            print("X Detection stage did not provide output directory")
+            return False
+        
+        detection_path = Path(detection_dir)
+        if not detection_path.exists():
+            print(f"X Detection output directory does not exist: {detection_path}")
+            return False
+        
+        # Validate that detection files actually exist
+        if detection_files:
+            missing_files = []
+            for file_path in detection_files:
+                if not Path(file_path).exists():
+                    missing_files.append(file_path)
+            
+            if missing_files:
+                print(f"X Expected detection files not found: {missing_files}")
+                return False
+            
+            print(f"V Found {len(detection_files)} detection files from detection stage")
+        else:
+            # Fallback: look for detection files in the directory
+            detection_files_found = list(detection_path.glob("*_detections.json"))
+            if not detection_files_found:
+                print(f"X No detection files found in {detection_path}")
+                return False
+            print(f"V Found {len(detection_files_found)} detection files in output directory")
         
         return True

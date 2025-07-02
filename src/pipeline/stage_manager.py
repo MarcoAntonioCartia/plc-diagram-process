@@ -231,6 +231,11 @@ class StageManager:
         for stage_name in stages_to_run:
             stage = self.stages[stage_name]
             
+            if not minimal_mode:
+                print(f"\nX Preparing to run stage: {stage_name}")
+                print(f"  Environment: {stage.required_env}")
+                print(f"  Dependencies: {stage.dependencies}")
+            
             # Setup stage
             stage.setup(config.get(stage_name, {}), self.state_dir)
             
@@ -247,16 +252,41 @@ class StageManager:
             
             # Clear state if forcing re-run
             if stage_name in force_stages:
+                if not minimal_mode:
+                    print(f"X Forcing re-run of stage: {stage_name}")
                 stage.clear_state()
             
             # Run stage
+            if not minimal_mode:
+                print(f"X Starting execution of stage: {stage_name}")
+            
             result = stage.run()
             results[stage_name] = result.to_dict()
+            
+            if not minimal_mode:
+                if result.success:
+                    print(f"V Stage {stage_name} completed successfully")
+                    # Show key results if available
+                    if result.data:
+                        if 'output_directory' in result.data:
+                            print(f"  Output directory: {result.data['output_directory']}")
+                        if 'total_detections' in result.data:
+                            print(f"  Total detections: {result.data['total_detections']}")
+                        if 'total_text_regions' in result.data:
+                            print(f"  Total text regions: {result.data['total_text_regions']}")
+                        if 'files_processed' in result.data:
+                            print(f"  Files processed: {result.data['files_processed']}")
+                else:
+                    print(f"X Stage {stage_name} failed: {result.error}")
             
             if not result.success:
                 overall_success = False
                 print(f"X Pipeline failed at stage: {stage_name}")
+                print(f"  Error: {result.error}")
                 break
+            
+            if not minimal_mode:
+                print(f"X Proceeding to next stage...")
         
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
