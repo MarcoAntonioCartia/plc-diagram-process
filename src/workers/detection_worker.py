@@ -41,15 +41,22 @@ def main() -> None:
     try:
         print(f"DEBUG: Starting detection worker with input: {input_data}")
         
-        # Check if model file exists
+        # Use the same model loading logic as yolo11_infer.py
+        # Don't pass model_path to force auto-detection of best custom model
         model_path = input_data.get("model_path")
+        
+        # If a specific model path is provided, verify it exists
         if model_path and not Path(model_path).exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
+            print(f"WARNING: Specified model not found: {model_path}")
+            print("Will use auto-detection to find best custom model instead")
+            model_path = None
         
         from src.detection.detect_pipeline import PLCDetectionPipeline  # type: ignore
 
+        # Pass None for model_path to trigger auto-detection of best custom model
+        # This uses the same logic as yolo11_infer.py load_model() function
         pipeline = PLCDetectionPipeline(
-            model_path=input_data.get("model_path"),
+            model_path=None,  # Force auto-detection of best custom model
             confidence_threshold=input_data.get("confidence_threshold", 0.25),
         )
 

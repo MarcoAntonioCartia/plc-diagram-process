@@ -42,7 +42,33 @@ class PLCDetectionPipeline:
             overlap: Overlap between snippets
             skip_pdf_conversion: Skip PDF to image conversion step (assumes images already exist)
         """
+        # Resolve diagrams folder path using config system (like the working stage-based pipeline)
         diagrams_folder = Path(diagrams_folder)
+        
+        # If it's a relative path, try to resolve it using the config system
+        if not diagrams_folder.is_absolute() and not diagrams_folder.exists():
+            from src.config import get_config
+            config = get_config()
+            data_root = Path(config.config["data_root"])
+            
+            # Handle case where path includes "plc-data" prefix
+            diagrams_str = str(diagrams_folder)
+            if diagrams_str.startswith("plc-data/") or diagrams_str.startswith("plc-data\\"):
+                # Remove the plc-data prefix since data_root already points to plc-data
+                relative_path = Path(diagrams_str[9:])  # Remove "plc-data/" or "plc-data\"
+                potential_path = data_root / relative_path
+            else:
+                # Try resolving relative to data root
+                potential_path = data_root / diagrams_folder
+            
+            if potential_path.exists():
+                diagrams_folder = potential_path
+            else:
+                # Try resolving relative to project root
+                potential_path = self.project_root / diagrams_folder
+                if potential_path.exists():
+                    diagrams_folder = potential_path
+        
         if not diagrams_folder.exists():
             raise FileNotFoundError(f"Diagrams folder not found: {diagrams_folder}")
         

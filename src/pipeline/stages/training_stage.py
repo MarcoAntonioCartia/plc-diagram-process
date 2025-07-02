@@ -527,16 +527,25 @@ class TrainingStage(BaseStage):
             
             progress.update_progress("Running YOLO training in isolated environment...")
             
-            # Run training worker (this would need to be implemented in multi_env_manager)
+            # Run training worker (this calls yolo11_train.py which automatically copies to custom dir)
             result = env_manager.run_training_pipeline(training_payload)
             
             if result.get('status') == 'success':
                 training_data = result.get('results', {})
                 custom_model_name = f"{training_payload['project_name']}_best.pt"
                 
+                # Verify the custom model was actually created
+                custom_model_path = config.get_model_path(custom_model_name, 'custom')
+                if not custom_model_path.exists():
+                    print(f"WARNING: Custom model not found at expected location: {custom_model_path}")
+                    print("Training completed but model copy may have failed")
+                else:
+                    print(f"SUCCESS: Custom model verified at: {custom_model_path}")
+                
                 return {
                     'status': 'success',
                     'custom_model_name': custom_model_name,
+                    'custom_model_path': str(custom_model_path),
                     'training_data': training_data,
                     'epochs_completed': training_data.get('epochs_completed', training_payload['epochs']),
                     'best_mAP50': training_data.get('best_mAP50', 0.0)

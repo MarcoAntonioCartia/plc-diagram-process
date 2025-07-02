@@ -21,7 +21,7 @@ def load_model(model_path=None):
     
     if model_path is None:
         # Try to find the best custom trained model
-        custom_models_dir = config.get_model_path('', 'custom').parent
+        custom_models_dir = config.get_model_path('', 'custom')
         
         if custom_models_dir.exists():
             # Look for models with metadata
@@ -246,7 +246,32 @@ def main():
         model = load_model(args.model)
         print()
         
+        # Resolve input path using config system (same logic as detect_pipeline.py)
         input_path = Path(args.input)
+        
+        # If it's a relative path, try to resolve it using the config system
+        if not input_path.is_absolute() and not input_path.exists():
+            config = get_config()
+            data_root = Path(config.config["data_root"])
+            
+            # Handle case where path includes "plc-data" prefix
+            input_str = str(input_path)
+            if input_str.startswith("plc-data/") or input_str.startswith("plc-data\\"):
+                # Remove the plc-data prefix since data_root already points to plc-data
+                relative_path = Path(input_str[9:])  # Remove "plc-data/" or "plc-data\"
+                potential_path = data_root / relative_path
+            else:
+                # Try resolving relative to data root
+                potential_path = data_root / input_path
+            
+            if potential_path.exists():
+                input_path = potential_path
+            else:
+                # Try resolving relative to project root
+                project_root = Path(__file__).resolve().parent.parent.parent
+                potential_path = project_root / input_path
+                if potential_path.exists():
+                    input_path = potential_path
         
         if input_path.is_file():
             # Single image inference
