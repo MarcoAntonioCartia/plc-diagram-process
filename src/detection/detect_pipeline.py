@@ -46,17 +46,30 @@ class PLCDetectionPipeline:
         if not diagrams_folder.exists():
             raise FileNotFoundError(f"Diagrams folder not found: {diagrams_folder}")
         
-        # Set up output folders
+        # Set up output folders using config system (like the working pipeline)
         if output_folder is None:
-            output_folder = diagrams_folder.parent
-        
-        output_folder = Path(output_folder)
-        images_folder = output_folder / "images"
-        detdiagrams_folder = output_folder / "detdiagrams"
+            # Use config to get the correct data root instead of assuming parent relationships
+            from src.config import get_config
+            config = get_config()
+            data_root = Path(config.config["data_root"])
+            images_folder = data_root / "processed" / "images"
+            detdiagrams_folder = data_root / "processed" / "detdiagrams"
+        else:
+            # When output_folder is provided, it's already pointing to the final destination
+            # Don't add /processed/ because the caller already provides the full path
+            output_folder = Path(output_folder)
+            if "processed" in str(output_folder):
+                # The output_folder already includes processed path, use it directly
+                images_folder = output_folder.parent / "images"
+                detdiagrams_folder = output_folder
+            else:
+                # Legacy behavior for backward compatibility
+                images_folder = output_folder / "processed" / "images"
+                detdiagrams_folder = output_folder / "processed" / "detdiagrams"
         
         # Create output directories
-        images_folder.mkdir(exist_ok=True)
-        detdiagrams_folder.mkdir(exist_ok=True)
+        images_folder.mkdir(parents=True, exist_ok=True)
+        detdiagrams_folder.mkdir(parents=True, exist_ok=True)
         
         print("Starting PLC Detection Pipeline")
         print("=" * 50)
@@ -105,7 +118,7 @@ class PLCDetectionPipeline:
         # Run the snipping process
         process_pdf_folder(
             input_folder=diagrams_folder,
-            output_folder=images_folder,
+            output_folder=images_folder,  # Output images to images_folder
             snippet_size=snippet_size,
             overlap=overlap,
             poppler_path=poppler_path
