@@ -396,33 +396,17 @@ class MultiEnvironmentManager:
                     verbose_mode = os.environ.get("PLCDP_VERBOSE", "0") == "1"
                     
                     if verbose_mode:
-                        # Stream output in real-time for verbose mode
-                        print(f"[MultiEnv] Running in verbose mode - streaming output...")
-                        process = subprocess.Popen(
+                        # Direct output in verbose mode - NO tampering with worker output
+                        print(f"[MultiEnv] Running in verbose mode - direct output...")
+                        completed = subprocess.run(
                             [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
                             env=env_vars,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            text=True,
-                            encoding='utf-8',
-                            errors='replace',
-                            bufsize=1,  # Line buffered
-                            universal_newlines=True
+                            timeout=TIMEOUT_SEC,
+                            # No output capture - let it go directly to console
                         )
                         
-                        # Stream output line by line
-                        while True:
-                            output = process.stdout.readline()
-                            if output == '' and process.poll() is not None:
-                                break
-                            if output:
-                                print(f"[Worker] {output.strip()}")
-                        
-                        # Wait for completion
-                        return_code = process.wait()
-                        
-                        if return_code != 0:
-                            raise subprocess.CalledProcessError(return_code, process.args)
+                        if completed.returncode != 0:
+                            raise subprocess.CalledProcessError(completed.returncode, completed.args)
                     else:
                         # Capture output (original behavior)
                         completed = subprocess.run(

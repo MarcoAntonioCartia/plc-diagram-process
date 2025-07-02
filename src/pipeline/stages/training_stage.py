@@ -503,7 +503,13 @@ class TrainingStage(BaseStage):
             # Get training configuration from stage config (passed from command line)
             stage_config = self.config or {}
             epochs = stage_config.get('epochs', 50)  # Default 50, can be overridden
-            batch_size = stage_config.get('batch_size', 16)  # Default 16, can be overridden
+            batch_size = stage_config.get('batch_size', 8)  # Default 8 for optimal GPU memory usage
+            
+            # Prevent excessively large batch sizes that cause GPU memory issues
+            if batch_size > 16:
+                print(f"WARNING: Large batch size ({batch_size}) may cause GPU memory issues. Consider using batch_size <= 16 for better performance.")
+                print(f"Reducing batch size from {batch_size} to 16 for optimal performance.")
+                batch_size = 16
             
             # Prepare training payload
             training_payload = {
@@ -515,7 +521,8 @@ class TrainingStage(BaseStage):
                 'patience': max(10, epochs // 2),  # Adaptive patience based on epochs
                 'project_name': f"plc_symbol_detector_{pretrained_info['model_name'].replace('.pt', '')}",
                 'output_dir': str(config.get_model_path('', 'custom').parent),
-                'config': stage_config
+                'config': stage_config,
+                'verbose': os.environ.get("PLCDP_VERBOSE", "0") == "1"  # Pass verbose flag to worker
             }
             
             progress.update_progress("Running YOLO training in isolated environment...")

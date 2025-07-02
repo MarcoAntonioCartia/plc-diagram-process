@@ -33,9 +33,10 @@ def main() -> None:
     with open(args.input, "r", encoding="utf-8") as f:
         input_data = json.load(f)
 
-    # Ensure Torch is loaded first – not strictly required inside dedicated env
-    os.environ.setdefault("CUDA_MODULE_LOADING", "LAZY")
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+    # Removed problematic environment variables that cause performance issues
+    # PYTORCH_CUDA_ALLOC_CONF with max_split_size_mb:128 causes massive slowdown
+    # These were added for compatibility but hurt training performance severely
+    pass
 
     try:
         print(f"DEBUG: Starting detection worker with input: {input_data}")
@@ -106,4 +107,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -182,8 +182,15 @@ def main():
                        help='Early stopping patience (default: 20)')
     parser.add_argument('--name', '-n', default='plc_symbol_detector',
                        help='Project name for this training run')
+    parser.add_argument('--verbose', '-v', action='store_true', default=True,
+                       help='Enable verbose output (default: True)')
+    parser.add_argument('--quiet', '-q', action='store_true',
+                       help='Disable verbose output (overrides --verbose)')
     
     args = parser.parse_args()
+    
+    # Handle verbose/quiet flags
+    verbose = args.verbose and not args.quiet
     
     print("Starting YOLO11 PLC Symbol Detection Training")
     print("=" * 50)
@@ -213,7 +220,8 @@ def main():
             patience=args.patience,
             device=device_arg,
             workers=args.workers,
-            project_name=args.name
+            project_name=args.name,
+            verbose=verbose
         )
         print("\nTraining completed successfully!")
     except Exception as e:
