@@ -286,7 +286,7 @@ class TrainingStage(BaseStage):
         """Setup training configuration without importing PyTorch"""
         training_config = {
             'epochs': 100,
-            'batch_size': 16,
+            'batch_size': 8,
             'learning_rate': 0.001,
             'image_size': 640,
             'device': 'cuda',  # Assume CUDA in multi-env mode
