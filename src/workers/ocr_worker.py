@@ -86,16 +86,22 @@ def main() -> None:
         confidence_threshold = input_data.get('confidence_threshold', 0.7)
         ocr_lang = input_data.get('language', 'en')
         device = input_data.get('device', None)  # Let pipeline auto-detect
+        bbox_padding = input_data.get('bbox_padding', 0)  # Default 0 padding
+        duplicate_iou_threshold = input_data.get('duplicate_iou_threshold', 0.7)  # Default 0.7 IoU threshold
         
         print(f"Initializing TextExtractionPipeline...")
         print(f"  Confidence threshold: {confidence_threshold}")
         print(f"  OCR language: {ocr_lang}")
         print(f"  Device: {device or 'auto-detect'}")
+        print(f"  BBox padding: {bbox_padding} pixels")
+        print(f"  Duplicate IoU threshold: {duplicate_iou_threshold}")
         
         pipeline = TextExtractionPipeline(
             confidence_threshold=confidence_threshold,
             ocr_lang=ocr_lang,
-            device=device
+            device=device,
+            bbox_padding=bbox_padding,
+            duplicate_iou_threshold=duplicate_iou_threshold
         )
         
         # Run text extraction using the original pipeline logic

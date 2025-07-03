@@ -131,6 +131,8 @@ class OcrStage(BaseStage):
                         'confidence_threshold': self.config.get('ocr_confidence_threshold', 0.7),
                         'language': self.config.get('ocr_language', 'en'),
                         'device': self.config.get('ocr_device', None),  # Let pipeline auto-detect GPU/CPU
+                        'bbox_padding': self.config.get('bbox_padding', 0),  # Add bbox padding parameter
+                        'duplicate_iou_threshold': self.config.get('duplicate_iou_threshold', 0.7),  # Add duplicate detection
                         'config': self.config
                     }
                     
