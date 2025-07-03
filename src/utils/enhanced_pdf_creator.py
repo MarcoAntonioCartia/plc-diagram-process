@@ -238,157 +238,50 @@ class EnhancedPDFCreator:
                         color=self.colors["page_title"])
     
     def _draw_detections_only(self, page: fitz.Page, detection_data: Dict, target_page: int, original_page: fitz.Page = None):
-        """Draw only YOLO detection boxes with coordinate transformation from landscape to portrait"""
-        # Get the original image dimensions from the detection data
-        original_width = None
-        original_height = None
+        """Draw YOLO detection boxes with proper snippet-based coordinate transformation"""
         
         for page_data in detection_data.get("pages", []):
             page_num = page_data.get("page", page_data.get("page_num", 1))
             if page_num != target_page:
                 continue
             
-            # Get the original dimensions used for YOLO inference
-            original_width = page_data.get("original_width")
-            original_height = page_data.get("original_height")
+            print(f"Processing detections for page {page_num}")
             
-            if original_width and original_height and original_page:
-                print(f"Found original image dimensions: {original_width} x {original_height}")
+            for detection in page_data.get("detections", []):
+                confidence = detection.get("confidence", 0.0)
                 
-                # Apply coordinate transformation if PDF was rotated
-                if original_page.rotation == 90:
-                    print("Applying 90° coordinate transformation from landscape to portrait")
+                # Only draw if confidence meets threshold
+                if confidence < self.detection_confidence_threshold:
+                    continue
+                
+                # Get snippet information
+                snippet_source = detection.get("snippet_source", "")
+                snippet_position = detection.get("snippet_position", {})
+                snippet_bbox = detection.get("bbox_snippet", {})
+                
+                if not snippet_source or not snippet_position or not snippet_bbox:
+                    continue
+                
+                # Extract grid position from snippet
+                row = snippet_position.get("row", 0)
+                col = snippet_position.get("col", 0)
+                
+                # Get snippet coordinates
+                sx1 = snippet_bbox.get("x1", 0)
+                sy1 = snippet_bbox.get("y1", 0)
+                sx2 = snippet_bbox.get("x2", 0)
+                sy2 = snippet_bbox.get("y2", 0)
+                
+                # Transform snippet coordinates to PDF coordinates
+                pdf_coords = self._transform_snippet_to_pdf(sx1, sy1, sx2, sy2, row, col, page, original_page)
+                
+                if pdf_coords:
+                    x1, y1, x2, y2 = pdf_coords
                     
-                    for detection in page_data.get("detections", []):
-                        confidence = detection.get("confidence", 0.0)
-                        
-                        # Only draw if confidence meets threshold
-                        if confidence < self.detection_confidence_threshold:
-                            continue
-                        
-                        # Get global bbox
-                        bbox = detection.get("bbox_global", detection.get("global_bbox", None))
-                        if isinstance(bbox, dict):
-                            bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
-                        if not (isinstance(bbox, list) and len(bbox) == 4):
-                            continue
-                        
-                        x1, y1, x2, y2 = bbox
-                        
-                        # Transform coordinates from landscape (YOLO) to portrait (PDF)
-                        # For 90° rotation: new_x = old_y, new_y = original_width - old_x
-                        new_x1 = y1
-                        new_y1 = original_width - x2
-                        new_x2 = y2
-                        new_y2 = original_width - x1
-                        
-                        # Ensure coordinates are in correct order
-                        if new_x1 > new_x2:
-                            new_x1, new_x2 = new_x2, new_x1
-                        if new_y1 > new_y2:
-                            new_y1, new_y2 = new_y2, new_y1
-                        
-                        # Scale to PDF dimensions
-                        page_rect = page.rect
-                        scale_x = page_rect.width / original_height  # Note: swapped due to rotation
-                        scale_y = page_rect.height / original_width
-                        
-                        scaled_x1 = new_x1 * scale_x
-                        scaled_y1 = new_y1 * scale_y
-                        scaled_x2 = new_x2 * scale_x
-                        scaled_y2 = new_y2 * scale_y
-                        
-                        # Create rectangle with transformed coordinates
-                        rect = fitz.Rect(scaled_x1, scaled_y1, scaled_x2, scaled_y2)
-                        
-                        # Choose color based on confidence level
-                        if confidence >= 0.95:
-                            box_color = self.colors["confidence_high"]
-                        elif confidence >= 0.85:
-                            box_color = self.colors["confidence_medium"]
-                        else:
-                            box_color = self.colors["detection_box"]
-                        
-                        # Draw box
-                        page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
-                        
-                        # Add label
-                        class_name = detection.get("class_name", "unknown")
-                        label = f"{class_name} {confidence:.0%}"
-                        
-                        # Position label above box with transformed coordinates
-                        label_x, label_y = scaled_x1, scaled_y1 - 8
-                        text_point = fitz.Point(label_x, label_y)
-                        page.insert_text(text_point, label, fontsize=self.font_size - 1, 
-                                        color=self.colors["text_color"])
-                else:
-                    # No rotation, use direct scaling
-                    page_rect = page.rect
-                    scale_x = page_rect.width / original_width
-                    scale_y = page_rect.height / original_height
-                    
-                    print(f"No rotation, direct scaling: x={scale_x:.4f}, y={scale_y:.4f}")
-                    
-                    for detection in page_data.get("detections", []):
-                        confidence = detection.get("confidence", 0.0)
-                        
-                        if confidence < self.detection_confidence_threshold:
-                            continue
-                        
-                        bbox = detection.get("bbox_global", detection.get("global_bbox", None))
-                        if isinstance(bbox, dict):
-                            bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
-                        if not (isinstance(bbox, list) and len(bbox) == 4):
-                            continue
-                        
-                        x1, y1, x2, y2 = bbox
-                        
-                        # Scale coordinates directly
-                        scaled_x1 = x1 * scale_x
-                        scaled_y1 = y1 * scale_y
-                        scaled_x2 = x2 * scale_x
-                        scaled_y2 = y2 * scale_y
-                        
-                        rect = fitz.Rect(scaled_x1, scaled_y1, scaled_x2, scaled_y2)
-                        
-                        if confidence >= 0.95:
-                            box_color = self.colors["confidence_high"]
-                        elif confidence >= 0.85:
-                            box_color = self.colors["confidence_medium"]
-                        else:
-                            box_color = self.colors["detection_box"]
-                        
-                        page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
-                        
-                        class_name = detection.get("class_name", "unknown")
-                        label = f"{class_name} {confidence:.0%}"
-                        text_point = fitz.Point(scaled_x1, scaled_y1 - 8)
-                        page.insert_text(text_point, label, fontsize=self.font_size - 1, 
-                                        color=self.colors["text_color"])
-                break
-            else:
-                print("Warning: No original dimensions found in detection data, using coordinates as-is")
-                # Fallback to original behavior if no dimensions found
-                for detection in page_data.get("detections", []):
-                    confidence = detection.get("confidence", 0.0)
-                    
-                    if confidence < self.detection_confidence_threshold:
-                        continue
-                    
-                    bbox = detection.get("bbox_global", detection.get("global_bbox", None))
-                    if isinstance(bbox, dict):
-                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
-                    if not (isinstance(bbox, list) and len(bbox) == 4):
-                        continue
-                    
-                    x1, y1, x2, y2 = bbox
-                    
-                    # Apply transformation if we have original page info
-                    if original_page and original_page.rotation != 0:
-                        x1, y1, x2, y2 = self._transform_coordinates_for_rotation(x1, y1, x2, y2, original_page)
-                    
+                    # Create rectangle
                     rect = fitz.Rect(x1, y1, x2, y2)
                     
+                    # Choose color based on confidence level
                     if confidence >= 0.95:
                         box_color = self.colors["confidence_high"]
                     elif confidence >= 0.85:
@@ -396,13 +289,79 @@ class EnhancedPDFCreator:
                     else:
                         box_color = self.colors["detection_box"]
                     
+                    # Draw box
                     page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
                     
+                    # Add label
                     class_name = detection.get("class_name", "unknown")
                     label = f"{class_name} {confidence:.0%}"
-                    text_point = fitz.Point(x1, y1 - 8)
+                    
+                    # Position label above box
+                    label_x, label_y = x1, y1 - 8
+                    text_point = fitz.Point(label_x, label_y)
                     page.insert_text(text_point, label, fontsize=self.font_size - 1, 
                                     color=self.colors["text_color"])
+            break
+    
+    def _transform_snippet_to_pdf(self, sx1: float, sy1: float, sx2: float, sy2: float, 
+                                 row: int, col: int, page: fitz.Page, original_page: fitz.Page) -> tuple:
+        """Transform snippet coordinates to PDF coordinates"""
+        
+        # Snippet dimensions (based on analysis)
+        snippet_width = 1500
+        snippet_height = 1200
+        
+        # Normalize snippet coordinates (0-1 range)
+        norm_x1 = sx1 / snippet_width
+        norm_y1 = sy1 / snippet_height
+        norm_x2 = sx2 / snippet_width
+        norm_y2 = sy2 / snippet_height
+        
+        # Get PDF dimensions
+        if original_page and original_page.rotation == 90:
+            # For rotated PDFs, use MediaBox dimensions (portrait)
+            pdf_width = original_page.mediabox.width
+            pdf_height = original_page.mediabox.height
+            
+            # Map to PDF coordinates
+            # The snippet grid covers the full PDF area
+            # Grid is 6 rows x 4 columns (rows 0-5, cols 2-5)
+            grid_cols = 4  # columns 2-5
+            grid_rows = 6  # rows 0-5
+            
+            # Calculate cell dimensions
+            cell_width = pdf_width / grid_cols
+            cell_height = pdf_height / grid_rows
+            
+            # Calculate cell position (col 2-5 maps to 0-3)
+            cell_col = col - 2
+            cell_row = row
+            
+            # Calculate base position
+            base_x = cell_col * cell_width
+            base_y = cell_row * cell_height
+            
+            # Add normalized position within cell
+            x1 = base_x + (norm_x1 * cell_width)
+            y1 = base_y + (norm_y1 * cell_height)
+            x2 = base_x + (norm_x2 * cell_width)
+            y2 = base_y + (norm_y2 * cell_height)
+            
+            print(f"Snippet r{row}c{col} -> PDF coords: ({x1:.0f},{y1:.0f})-({x2:.0f},{y2:.0f})")
+            
+            return (x1, y1, x2, y2)
+        else:
+            # For non-rotated PDFs, use direct mapping
+            pdf_width = page.rect.width
+            pdf_height = page.rect.height
+            
+            # Simple scaling for non-rotated case
+            x1 = norm_x1 * pdf_width
+            y1 = norm_y1 * pdf_height
+            x2 = norm_x2 * pdf_width
+            y2 = norm_y2 * pdf_height
+            
+            return (x1, y1, x2, y2)
     
     def _draw_text_regions_only(self, page: fitz.Page, text_data: Dict, 
                               target_page: int, original_page: fitz.Page):
