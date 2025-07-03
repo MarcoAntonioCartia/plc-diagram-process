@@ -308,44 +308,41 @@ class CSVFormatter:
         # Ensure output directory exists
         output_file.parent.mkdir(parents=True, exist_ok=True)
         
+        # Filter for Tag-ID areas only
+        tag_id_regions = [region for region in regions if region.area_id.startswith("area_Tag-ID_")]
+        
         with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
             
-            # Write header
+            # Write simplified header for Tag-ID data
             writer.writerow([
-                'sequence_id',
-                'area_id', 
-                'text',
-                'confidence',
-                'bbox_x1',
-                'bbox_y1', 
-                'bbox_x2',
-                'bbox_y2',
-                'bbox_width',
-                'bbox_height',
-                'page_number',
-                'symbol_association'
+                'TAG_TEXT',
+                'BBOX_X1',
+                'BBOX_Y1', 
+                'BBOX_X2',
+                'BBOX_Y2',
+                'BBOX_WIDTH',
+                'BBOX_HEIGHT',
+                'CONFIDENCE',
+                'PAGE'
             ])
             
-            # Write data rows
-            for region in regions:
+            # Write data rows for Tag-ID regions only
+            for region in tag_id_regions:
                 writer.writerow([
-                    region.sequence,
-                    region.area_id,
                     region.text_content.replace('\n', ' ').strip(),
-                    f"{region.confidence:.3f}",
                     f"{region.x:.1f}",
                     f"{region.y:.1f}",
                     f"{region.x + region.width:.1f}",
                     f"{region.y + region.height:.1f}",
                     f"{region.width:.1f}",
                     f"{region.height:.1f}",
-                    region.page,
-                    region.area_type
+                    f"{region.confidence:.3f}",
+                    region.page
                 ])
         
         print(f"  V CSV written to: {output_file}")
-        print(f"  V Total rows: {len(regions)}")
+        print(f"  V Total rows: {len(regions)} (filtered to {len(tag_id_regions)} Tag-ID regions)")
     
     def create_summary_report(self, regions: List[TextRegion], output_file: Path) -> None:
         """Create a summary report of the CSV formatting"""

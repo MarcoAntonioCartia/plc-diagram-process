@@ -5,16 +5,16 @@
     "environment": "multi",
     "files_processed": 1,
     "successful_files": 1,
-    "total_text_regions": 203,
+    "total_text_regions": 197,
     "results": [
       {
         "detection_file": "1150_detections.json",
         "success": true,
-        "text_regions": 203
+        "text_regions": 197
       }
     ]
   },
   "error": null,
-  "duration": 22.429718494415283,
-  "timestamp": "2025-07-03T11:47:52.561464"
+  "duration": 24.075212955474854,
+  "timestamp": "2025-07-03T14:04:18.162898"
 }
