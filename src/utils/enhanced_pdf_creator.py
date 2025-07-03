@@ -142,16 +142,65 @@ class EnhancedPDFCreator:
         for page_num in range(len(original_doc)):
             original_page = original_doc[page_num]
             
-            # Single page: PDF + Both (Combined)
-            page = enhanced_doc.new_page(width=original_page.rect.width, 
-                                       height=original_page.rect.height)
-            page.show_pdf_page(original_page.rect, original_doc, page_num)
+            # Create new page with proper orientation handling
+            page = self._create_page_with_orientation(enhanced_doc, original_page)
+            
+            # Show original PDF content with proper rotation
+            self._show_pdf_page_with_rotation(page, original_doc, page_num, original_page)
+            
             self._add_page_title(page, "Enhanced PLC Diagram", 1)
-            self._draw_detections_only(page, detection_data, page_num + 1)
-            self._draw_text_regions_only(page, text_data, page_num + 1, original_page.rect)
+            self._draw_detections_only(page, detection_data, page_num + 1, original_page)
+            self._draw_text_regions_only(page, text_data, page_num + 1, original_page)
             self._add_combined_legend(page, detection_data, text_data, page_num + 1)
         
         return enhanced_doc
+    
+    def _create_page_with_orientation(self, enhanced_doc: fitz.Document, original_page: fitz.Page) -> fitz.Page:
+        """Create a new page with proper orientation handling"""
+        # Use the original page's MediaBox dimensions (before rotation)
+        mediabox = original_page.mediabox
+        rotation = original_page.rotation
+        
+        print(f"Creating page with MediaBox: {mediabox}, Rotation: {rotation}°")
+        
+        # Create page with MediaBox dimensions
+        page = enhanced_doc.new_page(width=mediabox.width, height=mediabox.height)
+        
+        # Apply the same rotation as the original
+        if rotation != 0:
+            page.set_rotation(rotation)
+            print(f"Applied {rotation}° rotation to new page")
+        
+        return page
+    
+    def _show_pdf_page_with_rotation(self, page: fitz.Page, original_doc: fitz.Document, 
+                                   page_num: int, original_page: fitz.Page):
+        """Show PDF page content with proper rotation handling"""
+        # Get the original page's properties
+        rotation = original_page.rotation
+        mediabox = original_page.mediabox
+        
+        print(f"Showing PDF page {page_num + 1} with rotation {rotation}°")
+        
+        # Create the appropriate rectangle for showing the PDF content
+        if rotation == 0:
+            # No rotation needed
+            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+        elif rotation == 90:
+            # 90° rotation: width and height are swapped in the display
+            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+        elif rotation == 180:
+            # 180° rotation
+            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+        elif rotation == 270:
+            # 270° rotation: width and height are swapped in the display
+            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+        else:
+            # Default case
+            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+        
+        # Show the PDF page content
+        page.show_pdf_page(show_rect, original_doc, page_num)
     
     def _add_page_title(self, page: fitz.Page, title: str, page_num: int):
         """Add title to page"""
@@ -160,7 +209,7 @@ class EnhancedPDFCreator:
         page.insert_text(fitz.Point(15, 25), title, fontsize=self.font_size + 2, 
                         color=self.colors["page_title"])
     
-    def _draw_detections_only(self, page: fitz.Page, detection_data: Dict, target_page: int):
+    def _draw_detections_only(self, page: fitz.Page, detection_data: Dict, target_page: int, original_page: fitz.Page = None):
         """Draw only YOLO detection boxes"""
         for page_data in detection_data.get("pages", []):
             page_num = page_data.get("page", page_data.get("page_num", 1))
@@ -207,7 +256,7 @@ class EnhancedPDFCreator:
                                 color=self.colors["text_color"])
     
     def _draw_text_regions_only(self, page: fitz.Page, text_data: Dict, 
-                              target_page: int, page_rect: fitz.Rect):
+                              target_page: int, original_page: fitz.Page):
         """Draw only OCR text regions with proper coordinate mapping"""
         
         # Get page text regions
@@ -252,6 +301,7 @@ class EnhancedPDFCreator:
                 text_y2 = text_y1 + text_height
                 
                 # Ensure text box is within page bounds
+                page_rect = original_page.rect
                 if text_x2 > page_rect.width:
                     text_x1 = page_rect.width - text_width - 10
                     text_x2 = text_x1 + text_width
