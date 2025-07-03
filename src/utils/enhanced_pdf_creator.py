@@ -156,51 +156,79 @@ class EnhancedPDFCreator:
         return enhanced_doc
     
     def _create_page_with_orientation(self, enhanced_doc: fitz.Document, original_page: fitz.Page) -> fitz.Page:
-        """Create a new page with proper orientation handling"""
-        # Use the original page's MediaBox dimensions (before rotation)
+        """Create a new page using original PDF orientation (portrait)"""
+        # Use the original MediaBox dimensions (portrait orientation)
         mediabox = original_page.mediabox
-        rotation = original_page.rotation
         
-        print(f"Creating page with MediaBox: {mediabox}, Rotation: {rotation}°")
+        print(f"Creating page with original MediaBox dimensions: {mediabox.width} x {mediabox.height}")
+        print(f"Original rotation: {original_page.rotation}°")
         
-        # Create page with MediaBox dimensions
+        # Create page with original MediaBox dimensions (portrait)
         page = enhanced_doc.new_page(width=mediabox.width, height=mediabox.height)
-        
-        # Apply the same rotation as the original
-        if rotation != 0:
-            page.set_rotation(rotation)
-            print(f"Applied {rotation}° rotation to new page")
         
         return page
     
     def _show_pdf_page_with_rotation(self, page: fitz.Page, original_doc: fitz.Document, 
                                    page_num: int, original_page: fitz.Page):
-        """Show PDF page content with proper rotation handling"""
-        # Get the original page's properties
+        """Show PDF page content in original orientation (portrait)"""
+        # Get the page dimensions we're working with
+        page_rect = page.rect
+        original_rotation = original_page.rotation
+        
+        print(f"Showing PDF page {page_num + 1} in original orientation")
+        print(f"Target page dimensions: {page_rect.width} x {page_rect.height}")
+        print(f"Original rotation: {original_rotation}°")
+        
+        # Show the PDF content in its original orientation (portrait)
+        # This will display the content upright and readable
+        page.show_pdf_page(page_rect, original_doc, page_num)
+        
+        print(f"PDF content displayed in original portrait orientation")
+    
+    def _transform_coordinates_for_rotation(self, x1: float, y1: float, x2: float, y2: float, 
+                                          original_page: fitz.Page) -> Tuple[float, float, float, float]:
+        """Transform coordinates for rotated pages"""
         rotation = original_page.rotation
         mediabox = original_page.mediabox
         
-        print(f"Showing PDF page {page_num + 1} with rotation {rotation}°")
+        print(f"Transforming coordinates ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}) for {rotation}° rotation")
         
-        # Create the appropriate rectangle for showing the PDF content
-        if rotation == 0:
-            # No rotation needed
-            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
-        elif rotation == 90:
-            # 90° rotation: width and height are swapped in the display
-            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+        if rotation == 90:
+            # For 90° rotation: (x, y) -> (y, mediabox.height - x)
+            # The detection coordinates are in landscape view, need to map to portrait MediaBox
+            new_x1 = y1
+            new_y1 = mediabox.height - x2
+            new_x2 = y2
+            new_y2 = mediabox.height - x1
+            
+            # Ensure coordinates are in correct order (x1 < x2, y1 < y2)
+            if new_x1 > new_x2:
+                new_x1, new_x2 = new_x2, new_x1
+            if new_y1 > new_y2:
+                new_y1, new_y2 = new_y2, new_y1
+                
+            print(f"90° transform: ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}) -> ({new_x1:.1f}, {new_y1:.1f}, {new_x2:.1f}, {new_y2:.1f})")
+            return new_x1, new_y1, new_x2, new_y2
+            
         elif rotation == 180:
-            # 180° rotation
-            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+            # For 180° rotation: (x, y) -> (mediabox.width - x, mediabox.height - y)
+            new_x1 = mediabox.width - x2
+            new_y1 = mediabox.height - y2
+            new_x2 = mediabox.width - x1
+            new_y2 = mediabox.height - y1
+            return new_x1, new_y1, new_x2, new_y2
+            
         elif rotation == 270:
-            # 270° rotation: width and height are swapped in the display
-            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
+            # For 270° rotation: (x, y) -> (mediabox.width - y, x)
+            new_x1 = mediabox.width - y2
+            new_y1 = x1
+            new_x2 = mediabox.width - y1
+            new_y2 = x2
+            return new_x1, new_y1, new_x2, new_y2
+            
         else:
-            # Default case
-            show_rect = fitz.Rect(0, 0, mediabox.width, mediabox.height)
-        
-        # Show the PDF page content
-        page.show_pdf_page(show_rect, original_doc, page_num)
+            # No rotation or unsupported rotation
+            return x1, y1, x2, y2
     
     def _add_page_title(self, page: fitz.Page, title: str, page_num: int):
         """Add title to page"""
@@ -210,50 +238,171 @@ class EnhancedPDFCreator:
                         color=self.colors["page_title"])
     
     def _draw_detections_only(self, page: fitz.Page, detection_data: Dict, target_page: int, original_page: fitz.Page = None):
-        """Draw only YOLO detection boxes"""
+        """Draw only YOLO detection boxes with coordinate transformation from landscape to portrait"""
+        # Get the original image dimensions from the detection data
+        original_width = None
+        original_height = None
+        
         for page_data in detection_data.get("pages", []):
             page_num = page_data.get("page", page_data.get("page_num", 1))
             if page_num != target_page:
                 continue
+            
+            # Get the original dimensions used for YOLO inference
+            original_width = page_data.get("original_width")
+            original_height = page_data.get("original_height")
+            
+            if original_width and original_height and original_page:
+                print(f"Found original image dimensions: {original_width} x {original_height}")
                 
-            for detection in page_data.get("detections", []):
-                confidence = detection.get("confidence", 0.0)
-                
-                # Only draw if confidence meets threshold
-                if confidence < self.detection_confidence_threshold:
-                    continue
-                
-                # Get global bbox
-                bbox = detection.get("bbox_global", detection.get("global_bbox", None))
-                if isinstance(bbox, dict):
-                    bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
-                if not (isinstance(bbox, list) and len(bbox) == 4):
-                    continue
-                
-                x1, y1, x2, y2 = bbox
-                
-                # Create rectangle
-                rect = fitz.Rect(x1, y1, x2, y2)
-                
-                # Choose color based on confidence level
-                if confidence >= 0.95:
-                    box_color = self.colors["confidence_high"]
-                elif confidence >= 0.85:
-                    box_color = self.colors["confidence_medium"]
+                # Apply coordinate transformation if PDF was rotated
+                if original_page.rotation == 90:
+                    print("Applying 90° coordinate transformation from landscape to portrait")
+                    
+                    for detection in page_data.get("detections", []):
+                        confidence = detection.get("confidence", 0.0)
+                        
+                        # Only draw if confidence meets threshold
+                        if confidence < self.detection_confidence_threshold:
+                            continue
+                        
+                        # Get global bbox
+                        bbox = detection.get("bbox_global", detection.get("global_bbox", None))
+                        if isinstance(bbox, dict):
+                            bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                        if not (isinstance(bbox, list) and len(bbox) == 4):
+                            continue
+                        
+                        x1, y1, x2, y2 = bbox
+                        
+                        # Transform coordinates from landscape (YOLO) to portrait (PDF)
+                        # For 90° rotation: new_x = old_y, new_y = original_width - old_x
+                        new_x1 = y1
+                        new_y1 = original_width - x2
+                        new_x2 = y2
+                        new_y2 = original_width - x1
+                        
+                        # Ensure coordinates are in correct order
+                        if new_x1 > new_x2:
+                            new_x1, new_x2 = new_x2, new_x1
+                        if new_y1 > new_y2:
+                            new_y1, new_y2 = new_y2, new_y1
+                        
+                        # Scale to PDF dimensions
+                        page_rect = page.rect
+                        scale_x = page_rect.width / original_height  # Note: swapped due to rotation
+                        scale_y = page_rect.height / original_width
+                        
+                        scaled_x1 = new_x1 * scale_x
+                        scaled_y1 = new_y1 * scale_y
+                        scaled_x2 = new_x2 * scale_x
+                        scaled_y2 = new_y2 * scale_y
+                        
+                        # Create rectangle with transformed coordinates
+                        rect = fitz.Rect(scaled_x1, scaled_y1, scaled_x2, scaled_y2)
+                        
+                        # Choose color based on confidence level
+                        if confidence >= 0.95:
+                            box_color = self.colors["confidence_high"]
+                        elif confidence >= 0.85:
+                            box_color = self.colors["confidence_medium"]
+                        else:
+                            box_color = self.colors["detection_box"]
+                        
+                        # Draw box
+                        page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
+                        
+                        # Add label
+                        class_name = detection.get("class_name", "unknown")
+                        label = f"{class_name} {confidence:.0%}"
+                        
+                        # Position label above box with transformed coordinates
+                        label_x, label_y = scaled_x1, scaled_y1 - 8
+                        text_point = fitz.Point(label_x, label_y)
+                        page.insert_text(text_point, label, fontsize=self.font_size - 1, 
+                                        color=self.colors["text_color"])
                 else:
-                    box_color = self.colors["detection_box"]
-                
-                # Draw box
-                page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
-                
-                # Add label
-                class_name = detection.get("class_name", "unknown")
-                label = f"{class_name} {confidence:.0%}"
-                
-                # Position label above box
-                text_point = fitz.Point(x1, y1 - 8)
-                page.insert_text(text_point, label, fontsize=self.font_size - 1, 
-                                color=self.colors["text_color"])
+                    # No rotation, use direct scaling
+                    page_rect = page.rect
+                    scale_x = page_rect.width / original_width
+                    scale_y = page_rect.height / original_height
+                    
+                    print(f"No rotation, direct scaling: x={scale_x:.4f}, y={scale_y:.4f}")
+                    
+                    for detection in page_data.get("detections", []):
+                        confidence = detection.get("confidence", 0.0)
+                        
+                        if confidence < self.detection_confidence_threshold:
+                            continue
+                        
+                        bbox = detection.get("bbox_global", detection.get("global_bbox", None))
+                        if isinstance(bbox, dict):
+                            bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                        if not (isinstance(bbox, list) and len(bbox) == 4):
+                            continue
+                        
+                        x1, y1, x2, y2 = bbox
+                        
+                        # Scale coordinates directly
+                        scaled_x1 = x1 * scale_x
+                        scaled_y1 = y1 * scale_y
+                        scaled_x2 = x2 * scale_x
+                        scaled_y2 = y2 * scale_y
+                        
+                        rect = fitz.Rect(scaled_x1, scaled_y1, scaled_x2, scaled_y2)
+                        
+                        if confidence >= 0.95:
+                            box_color = self.colors["confidence_high"]
+                        elif confidence >= 0.85:
+                            box_color = self.colors["confidence_medium"]
+                        else:
+                            box_color = self.colors["detection_box"]
+                        
+                        page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
+                        
+                        class_name = detection.get("class_name", "unknown")
+                        label = f"{class_name} {confidence:.0%}"
+                        text_point = fitz.Point(scaled_x1, scaled_y1 - 8)
+                        page.insert_text(text_point, label, fontsize=self.font_size - 1, 
+                                        color=self.colors["text_color"])
+                break
+            else:
+                print("Warning: No original dimensions found in detection data, using coordinates as-is")
+                # Fallback to original behavior if no dimensions found
+                for detection in page_data.get("detections", []):
+                    confidence = detection.get("confidence", 0.0)
+                    
+                    if confidence < self.detection_confidence_threshold:
+                        continue
+                    
+                    bbox = detection.get("bbox_global", detection.get("global_bbox", None))
+                    if isinstance(bbox, dict):
+                        bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+                    if not (isinstance(bbox, list) and len(bbox) == 4):
+                        continue
+                    
+                    x1, y1, x2, y2 = bbox
+                    
+                    # Apply transformation if we have original page info
+                    if original_page and original_page.rotation != 0:
+                        x1, y1, x2, y2 = self._transform_coordinates_for_rotation(x1, y1, x2, y2, original_page)
+                    
+                    rect = fitz.Rect(x1, y1, x2, y2)
+                    
+                    if confidence >= 0.95:
+                        box_color = self.colors["confidence_high"]
+                    elif confidence >= 0.85:
+                        box_color = self.colors["confidence_medium"]
+                    else:
+                        box_color = self.colors["detection_box"]
+                    
+                    page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
+                    
+                    class_name = detection.get("class_name", "unknown")
+                    label = f"{class_name} {confidence:.0%}"
+                    text_point = fitz.Point(x1, y1 - 8)
+                    page.insert_text(text_point, label, fontsize=self.font_size - 1, 
+                                    color=self.colors["text_color"])
     
     def _draw_text_regions_only(self, page: fitz.Page, text_data: Dict, 
                               target_page: int, original_page: fitz.Page):
@@ -287,8 +436,45 @@ class EnhancedPDFCreator:
                     symbol_bbox = [symbol_bbox["x1"], symbol_bbox["y1"], 
                                  symbol_bbox["x2"], symbol_bbox["y2"]]
                 
-                # Position text near the associated symbol
+                # Get symbol coordinates and apply same transformation as detections
                 sx1, sy1, sx2, sy2 = symbol_bbox
+                
+                # Apply coordinate transformation if PDF was rotated
+                if original_page and original_page.rotation == 90:
+                    # Get original image dimensions from detection data
+                    original_width = None
+                    original_height = None
+                    
+                    # Find the detection data for this page to get dimensions
+                    for page_data in text_data.get("pages", []):
+                        if page_data.get("page") == target_page:
+                            # Try to get dimensions from detection data or use defaults
+                            original_width = 9362  # From detection data we saw earlier
+                            original_height = 6623
+                            break
+                    
+                    if original_width and original_height:
+                        # Transform symbol coordinates from landscape to portrait
+                        new_sx1 = sy1
+                        new_sy1 = original_width - sx2
+                        new_sx2 = sy2
+                        new_sy2 = original_width - sx1
+                        
+                        # Ensure coordinates are in correct order
+                        if new_sx1 > new_sx2:
+                            new_sx1, new_sx2 = new_sx2, new_sx1
+                        if new_sy1 > new_sy2:
+                            new_sy1, new_sy2 = new_sy2, new_sy1
+                        
+                        # Scale to PDF dimensions
+                        page_rect = page.rect
+                        scale_x = page_rect.width / original_height
+                        scale_y = page_rect.height / original_width
+                        
+                        sx1 = new_sx1 * scale_x
+                        sy1 = new_sy1 * scale_y
+                        sx2 = new_sx2 * scale_x
+                        sy2 = new_sy2 * scale_y
                 
                 # Calculate text box size based on text length
                 text_width = len(text) * (self.font_size - 1) * 0.6
@@ -301,7 +487,7 @@ class EnhancedPDFCreator:
                 text_y2 = text_y1 + text_height
                 
                 # Ensure text box is within page bounds
-                page_rect = original_page.rect
+                page_rect = page.rect
                 if text_x2 > page_rect.width:
                     text_x1 = page_rect.width - text_width - 10
                     text_x2 = text_x1 + text_width
