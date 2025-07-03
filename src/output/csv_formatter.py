@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
+from .area_grouper import AreaGrouper
+
 
 @dataclass
 class TextRegion:
@@ -76,22 +78,38 @@ class CSVFormatter:
                 if not text_regions:
                     continue
                 
-                # Group text regions into logical areas
-                grouper = AreaGrouper()
-                grouped_regions = grouper.group_regions(text_regions)
+                # Convert to TextRegion objects for processing
+                text_region_objects = self._convert_to_text_regions(text_regions, text_file)
+                
+                if not text_region_objects:
+                    continue
+                
+                # Group by areas if enabled
+                if self.area_grouping:
+                    grouped_regions = self._group_by_areas(text_region_objects)
+                else:
+                    # Single group with all regions
+                    grouped_regions = {'all_text': text_region_objects}
+                
+                # Sort within each area if enabled
+                if self.alphanumeric_sort:
+                    for area_id in grouped_regions:
+                        grouped_regions[area_id] = self._sort_alphanumeric(grouped_regions[area_id])
+                
+                # Assign sequences
+                final_regions = self._assign_sequences(grouped_regions)
                 
                 # Format to CSV
                 document_name = text_file.stem.replace('_text_extraction', '')
                 csv_file = output_file.parent / f"{document_name}_text_regions.csv"
-                summary_file = output_file.parent / f"{document_name}_summary.csv"
                 
-                # Create detailed CSV
-                self._create_detailed_csv(grouped_regions, csv_file)
+                # Write CSV
+                self._write_csv(final_regions, csv_file)
                 results['csv_files'].append(str(csv_file))
                 
-                # Create summary CSV
-                self._create_summary_csv(grouped_regions, summary_file)
-                results['summary_files'].append(str(summary_file))
+                # Create summary
+                self.create_summary_report(final_regions, csv_file)
+                results['summary_files'].append(str(csv_file.with_suffix('.summary.json')))
                 
             except Exception as e:
                 error_msg = f"Error loading {text_file.name}: {e}"
@@ -99,6 +117,51 @@ class CSVFormatter:
                 print(f"  X Error loading {text_file.name}: {e}")
         
         return results
+    
+    def _convert_to_text_regions(self, text_regions: List[Dict[str, Any]], text_file: Path) -> List[TextRegion]:
+        """Convert text region dictionaries to TextRegion objects"""
+        regions = []
+        
+        document_name = text_file.stem.replace('_text_extraction', '')
+        
+        for region_data in text_regions:
+            try:
+                # Extract bounding box
+                bbox = region_data.get('bbox', [0, 0, 0, 0])
+                if len(bbox) >= 4:
+                    x, y, x2, y2 = bbox[:4]
+                    width = x2 - x
+                    height = y2 - y
+                else:
+                    x = y = width = height = 0
+                
+                # Determine area information
+                area_info = self._determine_area_info(region_data)
+                
+                region = TextRegion(
+                    document=document_name,
+                    page=region_data.get('page', 1),
+                    area_id=area_info['area_id'],
+                    area_type=area_info['area_type'],
+                    sequence="",  # Will be assigned later
+                    text_content=region_data.get('text', '').strip(),
+                    confidence=region_data.get('confidence', 0.0),
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    source=region_data.get('source', 'ocr')
+                )
+                
+                # Only add if text content is not empty
+                if region.text_content:
+                    regions.append(region)
+                    
+            except Exception as e:
+                print(f"    Warning: Error processing region: {e}")
+                continue
+        
+        return regions
     
     def _load_text_regions(self, text_file: Path) -> List[TextRegion]:
         """Load text regions from JSON file"""
@@ -267,7 +330,7 @@ class CSVFormatter:
             # Write data rows
             for region in regions:
                 writer.writerow([
-                    region.sequence_id,
+                    region.sequence,
                     region.area_id,
                     region.text_content.replace('\n', ' ').strip(),
                     f"{region.confidence:.3f}",
@@ -283,12 +346,6 @@ class CSVFormatter:
         
         print(f"  V CSV written to: {output_file}")
         print(f"  V Total rows: {len(regions)}")
-        
-        # Create summary report
-        summary_file = output_file.with_suffix('.summary.txt')
-        self._write_summary_report(regions, summary_file)
-        
-        print(f"  V Summary report: {summary_file}")
     
     def create_summary_report(self, regions: List[TextRegion], output_file: Path) -> None:
         """Create a summary report of the CSV formatting"""

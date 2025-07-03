@@ -2,29 +2,52 @@
   "success": true,
   "stages_run": 1,
   "stages_skipped": 0,
-  "total_duration": 22.870531,
-  "start_time": "2025-07-03T11:42:22.951220",
-  "end_time": "2025-07-03T11:42:45.821751",
+  "total_duration": 2.25787,
+  "start_time": "2025-07-03T13:08:40.591828",
+  "end_time": "2025-07-03T13:08:42.849698",
   "results": {
-    "ocr": {
+    "enhancement": {
       "success": true,
       "data": {
         "status": "success",
-        "environment": "multi",
-        "files_processed": 1,
-        "successful_files": 1,
-        "total_text_regions": 203,
-        "results": [
-          {
-            "detection_file": "1150_detections.json",
-            "success": true,
-            "text_regions": 203
-          }
-        ]
+        "csv_results": {
+          "status": "success",
+          "combined_csv": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\csv_output\\combined_text_extraction.csv",
+          "combined_regions": 0,
+          "individual_files": [
+            {
+              "document": "1150",
+              "file": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\csv_output\\1150_text_extraction.csv",
+              "regions": 0
+            }
+          ],
+          "total_files": 1,
+          "area_grouping": true,
+          "alphanumeric_sort": true
+        },
+        "pdf_results": {
+          "status": "success",
+          "enhanced_pdfs": [
+            {
+              "document": "1150",
+              "enhanced_pdf": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\enhanced_pdfs\\1150_enhanced.pdf",
+              "version": "short"
+            }
+          ],
+          "total_files": 1,
+          "version": "short",
+          "detection_threshold": 0.8,
+          "text_threshold": 0.5
+        },
+        "environment": "core",
+        "output_directories": {
+          "csv": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\csv_output",
+          "pdfs": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\enhanced_pdfs"
+        }
       },
       "error": null,
-      "duration": 22.85150456428528,
-      "timestamp": "2025-07-03T11:42:45.816751"
+      "duration": 2.2563557624816895,
+      "timestamp": "2025-07-03T13:08:42.848700"
     }
   },
   "ci_mode": false

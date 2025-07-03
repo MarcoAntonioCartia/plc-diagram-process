@@ -43,7 +43,7 @@ class EnhancementStage(BaseStage):
             }
         
         # Find text extraction files
-        text_files = list(ocr_dir.glob("**/text_extraction.json"))
+        text_files = list(ocr_dir.glob("*_text_extraction.json"))
         if not text_files:
             return {
                 'status': 'error',
@@ -144,7 +144,8 @@ class EnhancementStage(BaseStage):
             # Create individual CSV files for each document
             individual_results = []
             for text_file in text_files:
-                document_name = text_file.parent.name
+                # Extract document name from filename (e.g., "1150_text_extraction.json" -> "1150")
+                document_name = text_file.stem.replace("_text_extraction", "")
                 individual_csv = output_dir / f"{document_name}_text_extraction.csv"
                 
                 individual_result = formatter.format_text_extraction_results(
@@ -199,10 +200,11 @@ class EnhancementStage(BaseStage):
             
             for text_file in text_files:
                 try:
-                    document_name = text_file.parent.name
+                    # Extract document name from filename (e.g., "1150_text_extraction.json" -> "1150")
+                    document_name = text_file.stem.replace("_text_extraction", "")
                     
                     # Find corresponding files
-                    detection_file = detection_dir / document_name / "detections.json"
+                    detection_file = detection_dir / f"{document_name}_detections.json"
                     original_pdf = pdf_dir / f"{document_name}.pdf"
                     
                     if not detection_file.exists():

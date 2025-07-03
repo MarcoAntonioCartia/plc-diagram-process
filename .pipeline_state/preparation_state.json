@@ -4,7 +4,7 @@
     "status": "success",
     "directories_created": [],
     "input_validation": {
-      "pdfs_found": 56,
+      "pdfs_found": 1,
       "config_valid": true,
       "errors": []
     },
@@ -25,6 +25,6 @@
     "config_validated": true
   },
   "error": null,
-  "duration": 0.26362013816833496,
-  "timestamp": "2025-07-02T17:34:28.398783"
+  "duration": 0.43716883659362793,
+  "timestamp": "2025-07-03T11:43:57.465705"
 }
