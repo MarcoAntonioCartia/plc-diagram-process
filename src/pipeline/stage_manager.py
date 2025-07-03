@@ -286,6 +286,11 @@ class StageManager:
                 break
             
             if not minimal_mode:
+                print(f"X Stage {stage_name} completed successfully")
+                print(f"X DEBUG: About to proceed to next stage...")
+                print(f"X DEBUG: Current stage index: {stages_to_run.index(stage_name)}")
+                print(f"X DEBUG: Total stages: {len(stages_to_run)}")
+                print(f"X DEBUG: Remaining stages: {stages_to_run[stages_to_run.index(stage_name)+1:]}")
                 print(f"X Proceeding to next stage...")
         
         end_time = datetime.now()

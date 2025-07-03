@@ -383,7 +383,13 @@ class MultiEnvironmentManager:
             env_vars["PYTHONPATH"] = str(self.project_root)
 
             MAX_RETRIES = 2
-            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "1800"))  # 30 minutes for training (reduced from 1 hour)
+            # Different timeouts for different workers
+            if "ocr_worker" in worker_script:
+                TIMEOUT_SEC = int(os.getenv("PLC_OCR_TIMEOUT", "300"))  # 5 minutes for OCR
+            elif "training_worker" in worker_script:
+                TIMEOUT_SEC = int(os.getenv("PLC_TRAINING_TIMEOUT", "1800"))  # 30 minutes for training
+            else:
+                TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "600"))  # 10 minutes default
 
             attempt = 0
             while attempt < MAX_RETRIES:

@@ -1,17 +1,34 @@
 {
-  "success": false,
+  "success": true,
   "stages_run": 1,
   "stages_skipped": 0,
-  "total_duration": 0.005552,
-  "start_time": "2025-07-02T18:12:48.951409",
-  "end_time": "2025-07-02T18:12:48.956961",
+  "total_duration": 29.313719,
+  "start_time": "2025-07-03T09:40:59.153006",
+  "end_time": "2025-07-03T09:41:28.466725",
   "results": {
-    "ocr": {
-      "success": false,
-      "data": {},
-      "error": "Stage dependencies not met",
-      "duration": 0.0010356903076171875,
-      "timestamp": "2025-07-02T18:12:48.955969"
+    "detection": {
+      "success": true,
+      "data": {
+        "status": "success",
+        "environment": "multi",
+        "files_processed": 1,
+        "successful_files": 1,
+        "total_detections": 7508,
+        "output_directory": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\detdiagrams",
+        "detection_files_created": [],
+        "results": [
+          {
+            "batch_processing": true,
+            "success": true,
+            "detections": 7508,
+            "output_directory": "D:\\MarMe\\github\\0.4\\plc-data\\processed\\detdiagrams",
+            "processed_files": 1
+          }
+        ]
+      },
+      "error": null,
+      "duration": 29.310195684432983,
+      "timestamp": "2025-07-03T09:41:28.464725"
     }
   },
   "ci_mode": false
