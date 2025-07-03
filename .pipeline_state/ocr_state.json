@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "data": {
+    "status": "success",
+    "environment": "multi",
+    "files_processed": 1,
+    "successful_files": 1,
+    "total_text_regions": 203,
+    "results": [
+      {
+        "detection_file": "1150_detections.json",
+        "success": true,
+        "text_regions": 203
+      }
+    ]
+  },
+  "error": null,
+  "duration": 22.85150456428528,
+  "timestamp": "2025-07-03T11:42:45.816751"
+}

@@ -118,12 +118,19 @@ class OcrStage(BaseStage):
                     progress.start_file(f"{detection_file.name} ({i}/{len(detection_files)})")
                     progress.update_progress("Initializing OCR...")
                     
-                    # Prepare OCR payload
+                    # Prepare OCR payload with all required parameters
                     data_root = Path(config.config["data_root"])
+                    pdf_folder = data_root / "raw" / "pdfs"
+                    output_dir = data_root / "processed" / "text_extraction"
+                    
                     ocr_payload = {
                         'action': 'extract_text',
                         'detection_file': str(detection_file),
-                        'output_dir': str(data_root / "processed" / "text_extraction"),
+                        'pdf_folder': str(pdf_folder),  # Add PDF folder path
+                        'output_dir': str(output_dir),
+                        'confidence_threshold': self.config.get('ocr_confidence_threshold', 0.7),
+                        'language': self.config.get('ocr_language', 'en'),
+                        'device': self.config.get('ocr_device', None),  # Let pipeline auto-detect GPU/CPU
                         'config': self.config
                     }
                     
@@ -194,15 +201,8 @@ class OcrStage(BaseStage):
         print("  X Running in single environment mode")
         
         try:
-            # Check if OCR modules are available
-            try:
-                # This would normally import PaddleOCR modules
-                # For now, we'll use a mock approach
-                print("  V OCR modules available")
-                ocr_available = True
-            except ImportError:
-                print("  X Using mock OCR for CI")
-                ocr_available = False
+            # Import and run OCR directly in the current environment
+            from src.ocr.text_extraction_pipeline import TextExtractionPipeline
             
             # Get detection files to process
             data_root = Path(config.config["data_root"])
@@ -227,37 +227,45 @@ class OcrStage(BaseStage):
                     'environment': 'single'
                 }
             
+            # Initialize text extraction pipeline
+            pipeline = TextExtractionPipeline(
+                confidence_threshold=self.config.get('ocr_confidence_threshold', 0.7),
+                ocr_lang=self.config.get('ocr_language', 'en'),
+                device=self.config.get('ocr_device', None)
+            )
+            
             # Process files
             results = []
+            pdf_folder = data_root / "raw" / "pdfs"
+            output_dir = data_root / "processed" / "text_extraction"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
             for detection_file in detection_files:
                 try:
-                    if ocr_available:
-                        # Would run actual OCR here
-                        # For now, mock the OCR process
-                        ocr_result = self._mock_ocr(detection_file, config)
-                        
-                        if ocr_result['success']:
-                            results.append({
-                                'detection_file': detection_file.name,
-                                'success': True,
-                                'text_regions': ocr_result.get('text_regions', 0)
-                            })
-                            print(f"    V OCR completed")
-                        else:
-                            results.append({
-                                'detection_file': detection_file.name,
-                                'success': False,
-                                'error': ocr_result.get('error', 'OCR failed')
-                            })
-                            print(f"    X OCR failed with code {result_code}")
-                    else:
-                        # Mock OCR for CI
+                    # Find corresponding PDF file
+                    pdf_name = detection_file.name.replace("_detections.json", ".pdf")
+                    pdf_file = pdf_folder / pdf_name
+                    
+                    if not pdf_file.exists():
+                        print(f"    X PDF file not found: {pdf_file}")
                         results.append({
                             'detection_file': detection_file.name,
-                            'success': True,
-                            'text_regions': 8,  # Mock text region count
-                            'mock': True
+                            'success': False,
+                            'error': f'PDF file not found: {pdf_name}'
                         })
+                        continue
+                    
+                    # Run text extraction
+                    ocr_result = pipeline.extract_text_from_detection_results(
+                        detection_file, pdf_file, output_dir
+                    )
+                    
+                    results.append({
+                        'detection_file': detection_file.name,
+                        'success': True,
+                        'text_regions': ocr_result.get('total_text_regions', 0)
+                    })
+                    print(f"    V OCR completed for {detection_file.name}: {ocr_result.get('total_text_regions', 0)} text regions")
                         
                 except Exception as e:
                     results.append({
@@ -265,7 +273,7 @@ class OcrStage(BaseStage):
                         'success': False,
                         'error': str(e)
                     })
-                    print(f"    X OCR error: {e}")
+                    print(f"    X OCR error for {detection_file.name}: {e}")
             
             # Calculate summary
             successful = sum(1 for r in results if r['success'])

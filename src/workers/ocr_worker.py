@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import sys
-import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -27,226 +26,6 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def extract_text_from_detection_data(detection_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extract text from detection data using a simplified approach
-    This is a monolithic implementation that doesn't require external PDFs
-    """
-    print("Starting simplified OCR text extraction...")
-    
-    # Paddle-specific env tweaks
-    os.environ.setdefault("CUDA_MODULE_LOADING", "LAZY")
-    os.environ.setdefault("FLAGS_allocator_strategy", "auto_growth")
-    os.environ.setdefault("FLAGS_fraction_of_gpu_memory_to_use", "0.5")
-    
-    try:
-        # Try to initialize PaddleOCR with fallback handling
-        from paddleocr import PaddleOCR
-        
-        # Initialize with robust fallback
-        ocr = None
-        try:
-            # Try GPU first
-            ocr = PaddleOCR(lang='en', use_gpu=True, show_log=False)
-            print("PaddleOCR initialized with GPU")
-        except Exception as e:
-            print(f"GPU initialization failed: {e}")
-            try:
-                # Fallback to CPU
-                ocr = PaddleOCR(lang='en', use_gpu=False, show_log=False)
-                print("PaddleOCR initialized with CPU")
-            except Exception as e2:
-                print(f"CPU initialization also failed: {e2}")
-                # Use mock OCR if PaddleOCR fails completely
-                ocr = None
-        
-        # Process detection data to extract text regions
-        text_regions = []
-        total_detections = 0
-        
-        for page_data in detection_data.get("pages", []):
-            page_num = page_data.get("page", page_data.get("page_num", 1))
-            detections = page_data.get("detections", [])
-            total_detections += len(detections)
-            
-            print(f"Processing page {page_num} with {len(detections)} detections")
-            
-            for i, detection in enumerate(detections):
-                # Extract detection information
-                class_name = detection.get("class_name", "unknown")
-                confidence = detection.get("confidence", 0.0)
-                bbox = detection.get("bbox_global", detection.get("global_bbox", {}))
-                
-                # Generate mock text based on detection class and properties
-                mock_text = generate_mock_text_for_detection(detection, i)
-                
-                if mock_text:
-                    # Create text region entry
-                    text_region = {
-                        "text": mock_text,
-                        "confidence": min(0.9, confidence + 0.1),  # Slightly higher confidence for text
-                        "bbox": extract_bbox_coordinates(bbox),
-                        "source": "ocr_mock" if ocr is None else "ocr",
-                        "page": page_num,
-                        "associated_symbol": detection,
-                        "matched_patterns": analyze_text_patterns(mock_text),
-                        "relevance_score": calculate_relevance_score(mock_text, class_name)
-                    }
-                    text_regions.append(text_region)
-        
-        # Generate summary statistics
-        statistics = {
-            "total_detections_processed": total_detections,
-            "total_text_regions": len(text_regions),
-            "average_confidence": sum(tr["confidence"] for tr in text_regions) / len(text_regions) if text_regions else 0,
-            "ocr_method": "mock" if ocr is None else "paddleocr",
-            "pages_processed": len(detection_data.get("pages", []))
-        }
-        
-        # Analyze PLC patterns
-        plc_patterns = analyze_plc_patterns(text_regions)
-        
-        result = {
-            "total_text_regions": len(text_regions),
-            "text_regions": text_regions,
-            "extraction_method": "simplified_ocr",
-            "plc_patterns_found": plc_patterns,
-            "statistics": statistics,
-            "detection_file": detection_data.get("source_file", "unknown")
-        }
-        
-        print(f"OCR extraction completed: {len(text_regions)} text regions from {total_detections} detections")
-        return result
-        
-    except Exception as e:
-        print(f"Error in OCR extraction: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-
-
-def generate_mock_text_for_detection(detection: Dict[str, Any], index: int) -> Optional[str]:
-    """Generate realistic mock text based on detection class and properties"""
-    class_name = detection.get("class_name", "unknown")
-    confidence = detection.get("confidence", 0.0)
-    
-    # Only generate text for high-confidence detections
-    if confidence < 0.3:
-        return None
-    
-    # Generate text based on class type
-    if class_name == "Tag-ID":
-        # Generate tag identifiers
-        tag_ids = ["T001", "T002", "T003", "P101", "P102", "V001", "V002", "M001", "M002"]
-        return tag_ids[index % len(tag_ids)]
-    
-    elif class_name in ["C0082", "X8164", "X8022", "X8117"]:
-        # Generate component codes
-        component_codes = ["I0.1", "Q0.2", "M1.3", "DB1", "FB2", "T1", "C1", "AI1", "AO1"]
-        return component_codes[index % len(component_codes)]
-    
-    elif class_name == "xxxx":
-        # Generate generic labels
-        labels = ["START", "STOP", "AUTO", "MANUAL", "ON", "OFF", "RESET", "ALARM"]
-        return labels[index % len(labels)]
-    
-    elif "valve" in class_name.lower():
-        # Generate valve-related text
-        valve_texts = ["OPEN", "CLOSE", "V001", "V002", "AUTO", "MANUAL"]
-        return valve_texts[index % len(valve_texts)]
-    
-    elif "pump" in class_name.lower():
-        # Generate pump-related text
-        pump_texts = ["P001", "P002", "START", "STOP", "AUTO", "MANUAL"]
-        return pump_texts[index % len(pump_texts)]
-    
-    else:
-        # Generate generic text for unknown classes
-        generic_texts = ["LABEL", "TEXT", "ID", "CODE", "NAME", "VALUE"]
-        return f"{generic_texts[index % len(generic_texts)]}{index + 1:02d}"
-
-
-def extract_bbox_coordinates(bbox: Any) -> List[float]:
-    """Extract bounding box coordinates in [x1, y1, x2, y2] format"""
-    if isinstance(bbox, dict):
-        return [
-            float(bbox.get("x1", 0)),
-            float(bbox.get("y1", 0)),
-            float(bbox.get("x2", 0)),
-            float(bbox.get("y2", 0))
-        ]
-    elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-        return [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])]
-    else:
-        return [0.0, 0.0, 0.0, 0.0]
-
-
-def analyze_text_patterns(text: str) -> List[Dict[str, Any]]:
-    """Analyze text for PLC-specific patterns"""
-    patterns = []
-    
-    # Input/Output patterns
-    if re.match(r'[IQ]\d+\.\d+', text):
-        patterns.append({"pattern": "io_address", "priority": 10, "description": "I/O address"})
-    
-    # Memory patterns
-    if re.match(r'M\d+\.\d+', text):
-        patterns.append({"pattern": "memory", "priority": 9, "description": "Memory address"})
-    
-    # Timer/Counter patterns
-    if re.match(r'[TC]\d+', text):
-        patterns.append({"pattern": "timer_counter", "priority": 8, "description": "Timer/Counter"})
-    
-    # Function/Data block patterns
-    if re.match(r'[FD]B\d+', text):
-        patterns.append({"pattern": "block", "priority": 7, "description": "Function/Data block"})
-    
-    # Tag patterns
-    if re.match(r'[A-Z]\d{3}', text):
-        patterns.append({"pattern": "tag", "priority": 6, "description": "Tag identifier"})
-    
-    # Control patterns
-    if text.upper() in ["START", "STOP", "AUTO", "MANUAL", "ON", "OFF", "OPEN", "CLOSE"]:
-        patterns.append({"pattern": "control", "priority": 5, "description": "Control command"})
-    
-    return patterns
-
-
-def calculate_relevance_score(text: str, class_name: str) -> float:
-    """Calculate relevance score for extracted text"""
-    base_score = 1.0
-    
-    # Pattern bonuses
-    if re.search(r'[IQM]\d+\.\d+', text):
-        base_score += 3.0
-    elif re.search(r'[TCFDB]\d+', text):
-        base_score += 2.0
-    elif text.upper() in ["START", "STOP", "AUTO", "MANUAL"]:
-        base_score += 1.5
-    
-    # Length bonus
-    if 2 <= len(text) <= 8:
-        base_score += 1.0
-    
-    # Class relevance bonus
-    if class_name == "Tag-ID" and re.match(r'[A-Z]\d{3}', text):
-        base_score += 2.0
-    
-    return round(base_score, 2)
-
-
-def analyze_plc_patterns(text_regions: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Analyze PLC patterns found in all text regions"""
-    pattern_counts = {}
-    
-    for region in text_regions:
-        for pattern in region.get("matched_patterns", []):
-            pattern_name = pattern["pattern"]
-            pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + 1
-    
-    return pattern_counts
-
-
 def main() -> None:
     args = parse_args()
 
@@ -256,24 +35,78 @@ def main() -> None:
     try:
         # Get input parameters
         detection_file_path = input_data.get('detection_file')
+        pdf_folder_path = input_data.get('pdf_folder')  # Optional - will auto-detect if not provided
+        output_dir_path = input_data.get('output_dir')
         
         if not detection_file_path:
             raise ValueError("Missing required parameter: detection_file")
         
+        if not output_dir_path:
+            raise ValueError("Missing required parameter: output_dir")
+        
         detection_file = Path(detection_file_path)
+        output_dir = Path(output_dir_path)
+        
         if not detection_file.exists():
             raise FileNotFoundError(f"Detection file not found: {detection_file}")
         
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
         print(f"Processing OCR for detection file: {detection_file}")
+        print(f"Output directory: {output_dir}")
         
-        # Load detection data
-        with open(detection_file, 'r', encoding='utf-8') as f:
-            detection_data = json.load(f)
+        # Auto-detect PDF folder if not provided
+        if pdf_folder_path:
+            pdf_folder = Path(pdf_folder_path)
+        else:
+            # Use config to get PDF folder
+            from src.config import get_config
+            config = get_config()
+            pdf_folder = Path(config.config["data_root"]) / "raw" / "pdfs"
         
-        # Extract text using simplified approach
-        results = extract_text_from_detection_data(detection_data)
+        if not pdf_folder.exists():
+            raise FileNotFoundError(f"PDF folder not found: {pdf_folder}")
         
-        out = {"status": "success", "results": results}
+        print(f"PDF folder: {pdf_folder}")
+        
+        # Find corresponding PDF file using the same logic as run_text_extraction.py
+        pdf_name = get_pdf_name_from_detection_file(detection_file.name)
+        pdf_file = pdf_folder / pdf_name
+        
+        if not pdf_file.exists():
+            raise FileNotFoundError(f"Corresponding PDF not found: {pdf_file}")
+        
+        print(f"PDF file: {pdf_file}")
+        
+        # Initialize text extraction pipeline with proper parameters
+        from src.ocr.text_extraction_pipeline import TextExtractionPipeline
+        
+        # Get OCR parameters from input
+        confidence_threshold = input_data.get('confidence_threshold', 0.7)
+        ocr_lang = input_data.get('language', 'en')
+        device = input_data.get('device', None)  # Let pipeline auto-detect
+        
+        print(f"Initializing TextExtractionPipeline...")
+        print(f"  Confidence threshold: {confidence_threshold}")
+        print(f"  OCR language: {ocr_lang}")
+        print(f"  Device: {device or 'auto-detect'}")
+        
+        pipeline = TextExtractionPipeline(
+            confidence_threshold=confidence_threshold,
+            ocr_lang=ocr_lang,
+            device=device
+        )
+        
+        # Run text extraction using the original pipeline logic
+        result = pipeline.extract_text_from_detection_results(
+            detection_file, pdf_file, output_dir
+        )
+        
+        print(f"Text extraction completed successfully!")
+        print(f"Found {result['total_text_regions']} text regions")
+        
+        out = {"status": "success", "results": result}
         exit_code = 0
         
     except Exception as exc:
@@ -288,6 +121,38 @@ def main() -> None:
         json.dump(out, f, indent=2)
 
     sys.exit(exit_code)
+
+
+def get_pdf_name_from_detection_file(detection_filename: str) -> str:
+    """
+    Extract PDF name from detection filename
+    
+    Handles various naming patterns:
+    - 1150_detections.json -> 1150.pdf
+    - 1150_detections_converted.json -> 1150.pdf
+    - diagram_detections.json -> diagram.pdf
+    """
+    # Remove .json extension first
+    name = detection_filename
+    if name.endswith(".json"):
+        name = name[:-5]
+    
+    # Remove detection suffixes in order (longest first)
+    if name.endswith("_detections_converted"):
+        name = name[:-20]  # Remove "_detections_converted"
+    elif name.endswith("_detections"):
+        name = name[:-11]  # Remove "_detections"
+    elif name.endswith("_converted"):
+        name = name[:-10]  # Remove "_converted"
+    
+    # Remove trailing underscore if present
+    if name.endswith("_"):
+        name = name[:-1]
+    
+    # Add .pdf extension
+    result = f"{name}.pdf"
+    
+    return result
 
 
 if __name__ == "__main__":
