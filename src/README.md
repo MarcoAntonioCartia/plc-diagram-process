@@ -11,7 +11,6 @@ src/
 ├── README.md                    # This file - source code overview
 ├── config.py                    # Centralized configuration management
 ├── run_pipeline.py              # Main pipeline runner with stage management
-├── integration_guide.md         # Multi-environment integration guide
 ├── detection/                   # Symbol detection pipeline
 ├── ocr/                         # Text extraction and OCR processing
 ├── pipeline/                    # Stage-based pipeline management
