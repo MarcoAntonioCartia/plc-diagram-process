@@ -1,0 +1,16 @@
+{
+  "text_regions": [
+    {
+      "page": 1,
+      "bbox": [
+        100,
+        200,
+        300,
+        250
+      ],
+      "text": "Sample Text",
+      "confidence": 0.95,
+      "source": "ocr"
+    }
+  ]
+}

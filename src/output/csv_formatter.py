@@ -126,12 +126,16 @@ class CSVFormatter:
         
         for region_data in text_regions:
             try:
-                # Extract bounding box
+                # Extract bounding box - coordinates are already in corner format (x1, y1, x2, y2)
                 bbox = region_data.get('bbox', [0, 0, 0, 0])
                 if len(bbox) >= 4:
-                    x, y, x2, y2 = bbox[:4]
-                    width = x2 - x
-                    height = y2 - y
+                    x1, y1, x2, y2 = bbox[:4]
+                    # Calculate width and height from corner coordinates
+                    width = abs(x2 - x1)
+                    height = abs(y2 - y1)
+                    # Use top-left corner as position
+                    x = min(x1, x2)
+                    y = min(y1, y2)
                 else:
                     x = y = width = height = 0
                 

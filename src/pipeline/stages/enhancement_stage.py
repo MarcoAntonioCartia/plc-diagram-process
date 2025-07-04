@@ -98,7 +98,7 @@ class EnhancementStage(BaseStage):
             
             # Try to import PDF enhancement modules
             try:
-                from src.utils.enhanced_pdf_creator import EnhancedPDFCreator
+from src.utils.pdf_annotator import PDFAnnotator
                 self._pdf_creator = EnhancedPDFCreator
                 self._pdf_available = True
                 print("  ✓ Enhancement modules available (including PDF)")

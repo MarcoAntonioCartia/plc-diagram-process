@@ -53,6 +53,7 @@ data/*.weights
 data/plc_symbols.yaml
 data/README.roboflow.txt
 data/*.zip
+pdf_debug/*
 
 # Training runs (old location)
 runs/

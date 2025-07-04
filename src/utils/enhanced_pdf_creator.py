@@ -156,34 +156,58 @@ class EnhancedPDFCreator:
         return enhanced_doc
     
     def _create_page_with_orientation(self, enhanced_doc: fitz.Document, original_page: fitz.Page) -> fitz.Page:
-        """Create a new page using original PDF orientation (portrait)"""
-        # Use the original MediaBox dimensions (portrait orientation)
-        mediabox = original_page.mediabox
+        """Create a new page in landscape orientation for proper display"""
+        # For 90° rotated PDFs, we want to create a landscape page
+        # that matches the visual orientation of the content
+        if original_page.rotation == 90:
+            # Create landscape page (width > height)
+            # Use the rect dimensions which represent the visual layout
+            page_width = original_page.rect.width   # 3370 (landscape width)
+            page_height = original_page.rect.height # 2384 (landscape height)
+        else:
+            # For non-rotated PDFs, use original dimensions
+            page_width = original_page.rect.width
+            page_height = original_page.rect.height
         
-        print(f"Creating page with original MediaBox dimensions: {mediabox.width} x {mediabox.height}")
+        print(f"Creating page with landscape dimensions: {page_width} x {page_height}")
         print(f"Original rotation: {original_page.rotation}°")
         
-        # Create page with original MediaBox dimensions (portrait)
-        page = enhanced_doc.new_page(width=mediabox.width, height=mediabox.height)
+        # Create page with landscape dimensions
+        page = enhanced_doc.new_page(width=page_width, height=page_height)
         
         return page
     
     def _show_pdf_page_with_rotation(self, page: fitz.Page, original_doc: fitz.Document, 
                                    page_num: int, original_page: fitz.Page):
-        """Show PDF page content in original orientation (portrait)"""
-        # Get the page dimensions we're working with
+        """Show PDF page content in landscape orientation"""
         page_rect = page.rect
         original_rotation = original_page.rotation
         
-        print(f"Showing PDF page {page_num + 1} in original orientation")
+        print(f"Showing PDF page {page_num + 1} in landscape orientation")
         print(f"Target page dimensions: {page_rect.width} x {page_rect.height}")
         print(f"Original rotation: {original_rotation}°")
         
-        # Show the PDF content in its original orientation (portrait)
-        # This will display the content upright and readable
-        page.show_pdf_page(page_rect, original_doc, page_num)
-        
-        print(f"PDF content displayed in original portrait orientation")
+        if original_rotation == 90:
+            # For 90° rotated PDFs, we need to rotate the content to landscape
+            # Create a transformation matrix to rotate the content
+            # The content should be rotated 90° counter-clockwise to appear upright in landscape
+            
+            # Get the original MediaBox (portrait) dimensions
+            mediabox = original_page.mediabox
+            
+            # Create transformation matrix for 90° counter-clockwise rotation
+            # This will rotate the portrait content to landscape orientation
+            matrix = fitz.Matrix(0, -1, 1, 0, 0, page_rect.height)
+            
+            # Show the PDF content with rotation transformation
+            page.show_pdf_page(page_rect, original_doc, page_num, matrix=matrix)
+            
+            print(f"PDF content rotated to landscape orientation")
+        else:
+            # For non-rotated PDFs, show normally
+            page.show_pdf_page(page_rect, original_doc, page_num)
+            
+            print(f"PDF content displayed without rotation")
     
     def _transform_coordinates_for_rotation(self, x1: float, y1: float, x2: float, y2: float, 
                                           original_page: fitz.Page) -> Tuple[float, float, float, float]:
@@ -305,63 +329,93 @@ class EnhancedPDFCreator:
     
     def _transform_snippet_to_pdf(self, sx1: float, sy1: float, sx2: float, sy2: float, 
                                  row: int, col: int, page: fitz.Page, original_page: fitz.Page) -> tuple:
-        """Transform snippet coordinates to PDF coordinates"""
+        """Transform snippet coordinates to PDF coordinates using proper grid mapping"""
         
-        # Snippet dimensions (based on analysis)
+        # Get the original image dimensions from the detection data
+        # Based on the coordinate analysis: original image is 9362x6623
+        original_width = 9362
+        original_height = 6623
+        
+        # Snippet dimensions
         snippet_width = 1500
         snippet_height = 1200
         
-        # Normalize snippet coordinates (0-1 range)
-        norm_x1 = sx1 / snippet_width
-        norm_y1 = sy1 / snippet_height
-        norm_x2 = sx2 / snippet_width
-        norm_y2 = sy2 / snippet_height
+        # Grid configuration: 6 rows x 4 columns (rows 0-5, cols 2-5)
+        grid_rows = 6
+        grid_cols = 4
         
-        # Get PDF dimensions
+        # Calculate the actual grid cell size in original image coordinates
+        cell_width = original_width / grid_cols
+        cell_height = original_height / grid_rows
+        
+        # Map column 2-5 to 0-3
+        grid_col = col - 2
+        if grid_col < 0 or grid_col >= grid_cols:
+            print(f"Warning: Invalid column {col}, expected 2-5")
+            return None
+            
+        if row < 0 or row >= grid_rows:
+            print(f"Warning: Invalid row {row}, expected 0-5")
+            return None
+        
+        # Calculate the base position of this grid cell in original image coordinates
+        cell_base_x = grid_col * cell_width
+        cell_base_y = row * cell_height
+        
+        # Convert snippet coordinates to original image coordinates
+        # The snippet coordinates are relative to the cell, so we add the cell base
+        orig_x1 = cell_base_x + sx1
+        orig_y1 = cell_base_y + sy1
+        orig_x2 = cell_base_x + sx2
+        orig_y2 = cell_base_y + sy2
+        
+        # Now transform from original image coordinates to PDF coordinates
         if original_page and original_page.rotation == 90:
-            # For rotated PDFs, use MediaBox dimensions (portrait)
-            pdf_width = original_page.mediabox.width
-            pdf_height = original_page.mediabox.height
+            # For 90° rotated PDFs, we need to transform coordinates
+            # Original landscape (9362x6623) -> PDF portrait (MediaBox)
+            mediabox = original_page.mediabox
+            pdf_width = mediabox.width   # Should be ~2384 (portrait width)
+            pdf_height = mediabox.height # Should be ~3370 (portrait height)
             
-            # Map to PDF coordinates
-            # The snippet grid covers the full PDF area
-            # Grid is 6 rows x 4 columns (rows 0-5, cols 2-5)
-            grid_cols = 4  # columns 2-5
-            grid_rows = 6  # rows 0-5
+            # Apply 90° rotation transformation: (x, y) -> (y, height - x)
+            # But we need to scale first, then rotate
             
-            # Calculate cell dimensions
-            cell_width = pdf_width / grid_cols
-            cell_height = pdf_height / grid_rows
+            # Scale from original image to PDF dimensions
+            scale_x = pdf_width / original_height   # Note: swapped due to rotation
+            scale_y = pdf_height / original_width   # Note: swapped due to rotation
             
-            # Calculate cell position (col 2-5 maps to 0-3)
-            cell_col = col - 2
-            cell_row = row
+            # Apply rotation transformation
+            # For 90° clockwise: (x, y) -> (y, original_width - x)
+            rot_x1 = orig_y1 * scale_x
+            rot_y1 = (original_width - orig_x2) * scale_y  # Use x2 for y1 due to rotation
+            rot_x2 = orig_y2 * scale_x
+            rot_y2 = (original_width - orig_x1) * scale_y  # Use x1 for y2 due to rotation
             
-            # Calculate base position
-            base_x = cell_col * cell_width
-            base_y = cell_row * cell_height
+            # Ensure coordinates are in correct order
+            if rot_x1 > rot_x2:
+                rot_x1, rot_x2 = rot_x2, rot_x1
+            if rot_y1 > rot_y2:
+                rot_y1, rot_y2 = rot_y2, rot_y1
             
-            # Add normalized position within cell
-            x1 = base_x + (norm_x1 * cell_width)
-            y1 = base_y + (norm_y1 * cell_height)
-            x2 = base_x + (norm_x2 * cell_width)
-            y2 = base_y + (norm_y2 * cell_height)
+            print(f"Snippet r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> PDF: ({rot_x1:.0f},{rot_y1:.0f})-({rot_x2:.0f},{rot_y2:.0f})")
             
-            print(f"Snippet r{row}c{col} -> PDF coords: ({x1:.0f},{y1:.0f})-({x2:.0f},{y2:.0f})")
-            
-            return (x1, y1, x2, y2)
+            return (rot_x1, rot_y1, rot_x2, rot_y2)
         else:
-            # For non-rotated PDFs, use direct mapping
+            # For non-rotated PDFs, simple scaling
             pdf_width = page.rect.width
             pdf_height = page.rect.height
             
-            # Simple scaling for non-rotated case
-            x1 = norm_x1 * pdf_width
-            y1 = norm_y1 * pdf_height
-            x2 = norm_x2 * pdf_width
-            y2 = norm_y2 * pdf_height
+            scale_x = pdf_width / original_width
+            scale_y = pdf_height / original_height
             
-            return (x1, y1, x2, y2)
+            pdf_x1 = orig_x1 * scale_x
+            pdf_y1 = orig_y1 * scale_y
+            pdf_x2 = orig_x2 * scale_x
+            pdf_y2 = orig_y2 * scale_y
+            
+            print(f"Snippet r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> PDF: ({pdf_x1:.0f},{pdf_y1:.0f})-({pdf_x2:.0f},{pdf_y2:.0f})")
+            
+            return (pdf_x1, pdf_y1, pdf_x2, pdf_y2)
     
     def _draw_text_regions_only(self, page: fitz.Page, text_data: Dict, 
                               target_page: int, original_page: fitz.Page):
