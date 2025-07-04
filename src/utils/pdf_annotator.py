@@ -199,7 +199,7 @@ class PDFAnnotator:
         print(f"  Added {text_count} text annotations")
     
     def _transform_detection_to_pdf(self, snippet_bbox: Dict, snippet_position: Dict, page: fitz.Page) -> Optional[Tuple[float, float, float, float]]:
-        """Transform detection coordinates from snippet space to PDF space"""
+        """Transform detection coordinates from snippet space to PDF space using proper coordinate system conversion"""
         
         # Original image dimensions (from YOLO training)
         original_width = 9362
@@ -209,7 +209,7 @@ class PDFAnnotator:
         grid_rows = 6
         grid_cols = 4
         
-        # Get snippet coordinates
+        # Get snippet coordinates (ML detection format: top-left origin)
         sx1 = snippet_bbox.get("x1", 0)
         sy1 = snippet_bbox.get("y1", 0)
         sx2 = snippet_bbox.get("x2", 0)
@@ -233,48 +233,37 @@ class PDFAnnotator:
         cell_base_x = grid_col * cell_width
         cell_base_y = row * cell_height
         
-        # Convert to original image coordinates
+        # Convert to original image coordinates (still top-left origin)
         orig_x1 = cell_base_x + sx1
         orig_y1 = cell_base_y + sy1
         orig_x2 = cell_base_x + sx2
         orig_y2 = cell_base_y + sy2
         
-        # Transform to PDF coordinates
+        # Get PDF dimensions
         pdf_width = page.rect.width
         pdf_height = page.rect.height
         
-        # Check if PDF is rotated
+        # Simplified approach: Let PyMuPDF handle the rotation, we just need to scale properly
+        # The key insight: PyMuPDF coordinate system matches ML detection coordinates (top-left origin)
+        
         if page.rotation == 90:
-            # For 90° rotated PDFs, we need to transform coordinates
-            # Original image: landscape (9362×6623)
-            # PDF: portrait with 90° rotation (3370×2384)
+            # For 90° rotated PDFs, we need to map coordinates correctly
+            # Original image is landscape (9362×6623), PDF is portrait (3370×2384) with 90° rotation
             
-            # Apply 90° rotation transformation: (x, y) -> (y, original_width - x)
-            # This maps landscape coordinates to portrait coordinate system
-            rot_x1 = orig_y1
-            rot_y1 = original_width - orig_x2  # Use x2 for y1 due to rotation
-            rot_x2 = orig_y2
-            rot_y2 = original_width - orig_x1  # Use x1 for y2 due to rotation
+            # Direct scaling without manual rotation - let PyMuPDF handle the rotation
+            # Scale based on the actual image-to-PDF mapping
+            scale_x = pdf_width / original_width   # 3370 / 9362
+            scale_y = pdf_height / original_height # 2384 / 6623
             
-            # Ensure coordinates are in correct order (x1 < x2, y1 < y2)
-            if rot_x1 > rot_x2:
-                rot_x1, rot_x2 = rot_x2, rot_x1
-            if rot_y1 > rot_y2:
-                rot_y1, rot_y2 = rot_y2, rot_y1
+            # Apply scaling directly
+            pdf_x1 = orig_x1 * scale_x
+            pdf_y1 = orig_y1 * scale_y
+            pdf_x2 = orig_x2 * scale_x
+            pdf_y2 = orig_y2 * scale_y
             
-            # Now scale to PDF dimensions
-            # After rotation, original_height becomes width, original_width becomes height
-            scale_x = pdf_width / original_height   # 3370 / 6623
-            scale_y = pdf_height / original_width   # 2384 / 9362
-            
-            pdf_x1 = rot_x1 * scale_x
-            pdf_y1 = rot_y1 * scale_y
-            pdf_x2 = rot_x2 * scale_x
-            pdf_y2 = rot_y2 * scale_y
-            
-            print(f"    Detection r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> Rotated: ({rot_x1:.0f},{rot_y1:.0f})-({rot_x2:.0f},{rot_y2:.0f}) -> PDF: ({pdf_x1:.0f},{pdf_y1:.0f})-({pdf_x2:.0f},{pdf_y2:.0f})")
+            print(f"    Detection r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> Global: ({orig_x1:.0f},{orig_y1:.0f})-({orig_x2:.0f},{orig_y2:.0f}) -> PDF: ({pdf_x1:.0f},{pdf_y1:.0f})-({pdf_x2:.0f},{pdf_y2:.0f})")
         else:
-            # For non-rotated PDFs, simple scaling
+            # For non-rotated PDFs: Direct scaling
             scale_x = pdf_width / original_width
             scale_y = pdf_height / original_height
             
@@ -284,6 +273,12 @@ class PDFAnnotator:
             pdf_y2 = orig_y2 * scale_y
             
             print(f"    Detection r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> PDF: ({pdf_x1:.0f},{pdf_y1:.0f})-({pdf_x2:.0f},{pdf_y2:.0f})")
+        
+        # Validate coordinates are within PDF bounds
+        if (pdf_x1 < 0 or pdf_y1 < 0 or pdf_x2 > pdf_width or pdf_y2 > pdf_height or
+            pdf_x1 >= pdf_x2 or pdf_y1 >= pdf_y2):
+            print(f"    Warning: Invalid PDF coordinates ({pdf_x1:.0f},{pdf_y1:.0f})-({pdf_x2:.0f},{pdf_y2:.0f}) for page {pdf_width}x{pdf_height}")
+            return None
         
         return (pdf_x1, pdf_y1, pdf_x2, pdf_y2)
     

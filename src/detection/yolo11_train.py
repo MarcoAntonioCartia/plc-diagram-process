@@ -37,13 +37,33 @@ def train_yolo11(
     # Get configuration
     config = get_config()
     
+    # Configure Ultralytics to use proper directories
+    models_dir = config.get_model_path('', 'pretrained').parent
+    
+    # Set Ultralytics settings to use our directories
+    from ultralytics import settings
+    settings.update({
+        'datasets_dir': str(config.get_dataset_path()),
+        'weights_dir': str(models_dir),
+        'runs_dir': str(config.get_run_path('').parent)
+    })
+    
     # Use smart device detection if device not specified
     if device is None:
         device = get_best_device()
         print(f"Auto-detected device: {device} (CUDA available: {torch.cuda.is_available()})")
     
     # Define paths using config, but allow override for data_yaml_path
-    model_path = config.get_model_path(model_name, 'pretrained')
+    # Handle both full paths and model names
+    if Path(model_name).is_absolute() and Path(model_name).exists():
+        # Full path provided (from training worker)
+        model_path = Path(model_name)
+        actual_model_name = model_path.name
+    else:
+        # Model name provided (from command line)
+        model_path = config.get_model_path(model_name, 'pretrained')
+        actual_model_name = model_name
+    
     if data_yaml_path is None:
         data_yaml_path = config.data_yaml_path
     else:
@@ -59,6 +79,7 @@ def train_yolo11(
     print(f"Loading YOLO11 model from: {model_path}")
     print(f"Using dataset config: {data_yaml_path}")
     print(f"Training runs will be saved to: {runs_path}")
+    print("Note: AMP (Automatic Mixed Precision) is disabled to prevent model download issues")
     
     # Load pretrained YOLO11 model - with updated Ultralytics, no patches needed
     model = YOLO(str(model_path))
@@ -86,7 +107,7 @@ def train_yolo11(
             verbose=verbose,
             exist_ok=True,  # Allow overwriting existing runs
             val=True,  # Keep validation enabled
-            amp=True,  # Enable automatic mixed precision for better performance
+            amp=False,  # Disable AMP to prevent yolo11n.pt download issues
             close_mosaic=10  # Close mosaic augmentation early for faster convergence
         )
     except Exception as e:
@@ -144,7 +165,7 @@ def train_yolo11(
         
         # Also save the model metadata
         metadata = {
-            "original_pretrained": model_name,
+            "original_pretrained": actual_model_name,
             "epochs_trained": epochs,
             "dataset": config.config['dataset']['name'],
             "training_dir": str(results.save_dir),

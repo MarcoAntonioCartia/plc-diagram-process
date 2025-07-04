@@ -59,7 +59,7 @@ def main() -> None:
         cmd = [
             sys.executable,
             str(training_script),
-            "--model", Path(model_path).name if model_path else 'yolo11m.pt',
+            "--model", str(model_path) if model_path else 'yolo11m.pt',
             "--epochs", str(epochs),
             "--batch", str(batch_size),
             "--patience", str(patience),

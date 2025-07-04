@@ -27,7 +27,10 @@ src/utils/
 │   └── pdf_enhancer.py                # PDF enhancement utilities
 ├── System Utilities
 │   ├── progress_display.py            # Progress visualization
-│   └── gpu_sanity_checker.py          # GPU diagnostics
+│   ├── gpu_sanity_checker.py          # GPU diagnostics
+│   ├── cleanup_storage.py             # Storage management utility
+│   ├── fix_config_path.py             # Configuration path fixer
+│   └── pdf_annotator.py               # Native PDF annotation system
 └── Documentation
     └── gpu_conflict_guide.md           # GPU troubleshooting guide
 ```
@@ -243,6 +246,69 @@ result = manager.run_training_pipeline(training_config)
 - **Library Testing**: CUDA/PyTorch library validation
 - **Performance Testing**: Basic performance benchmarking
 
+#### `cleanup_storage.py`
+**Purpose**: Storage management and cleanup utilities
+**Functionality**:
+- Audits current storage usage across project directories
+- Cleans up old training runs and temporary files
+- Manages cache files and temporary worker directories
+- Provides storage optimization recommendations
+
+**Key Functions**:
+- `audit_storage()`: Comprehensive storage usage analysis
+- `cleanup_training_runs()`: Remove old training runs keeping latest N
+- `cleanup_cache_files()`: Clean YOLO cache files
+- `cleanup_temp_workers()`: Remove temporary worker directories
+
+**Storage Management Features**:
+- **Usage Analysis**: Detailed storage usage breakdown by directory
+- **Automated Cleanup**: Configurable cleanup of old files and runs
+- **Safety Features**: Dry-run mode and confirmation prompts
+- **Space Recovery**: Identifies and removes large temporary files
+
+#### `fix_config_path.py`
+**Purpose**: Configuration path management and migration utilities
+**Functionality**:
+- Updates configuration paths for version migrations
+- Validates configuration file integrity
+- Handles path translation between different environments
+- Provides configuration backup and recovery
+
+**Key Functions**:
+- `update_config_paths()`: Update paths in configuration files
+- `validate_config()`: Validate configuration file structure
+- `backup_config()`: Create configuration backups
+- `migrate_version()`: Handle version-specific migrations
+
+**Configuration Management Features**:
+- **Path Migration**: Automatic path updates for version changes
+- **Validation**: Configuration file structure validation
+- **Backup Management**: Automatic configuration backups
+- **Cross-platform**: Windows/Linux path compatibility
+
+#### `pdf_annotator.py`
+**Purpose**: Native PDF annotation system for ML detection results
+**Functionality**:
+- Creates native PDF annotations from detection results
+- Handles coordinate transformation for proper annotation placement
+- Provides professional annotation styling and formatting
+- Supports both detection boxes and text annotations
+
+**Key Classes**:
+- `PDFAnnotator`: Main annotation creation class
+
+**Key Functions**:
+- `create_annotated_pdf()`: Generate annotated PDF from detection results
+- `add_detection_annotations()`: Add YOLO detection boxes as annotations
+- `add_text_annotations()`: Add OCR text as PDF annotations
+- `transform_coordinates()`: Convert detection coordinates to PDF space
+
+**Annotation Features**:
+- **Native Annotations**: True PDF annotations visible in all viewers
+- **Coordinate Accuracy**: Precise coordinate transformation for rotated PDFs
+- **Professional Styling**: Configurable colors, opacity, and styling
+- **Metadata Support**: Rich annotation metadata and tooltips
+
 ## Integration with Pipeline System
 
 ### Multi-Environment Integration
@@ -343,6 +409,50 @@ download_dataset(
 
 # Activate dataset
 activate_dataset("plc_symbols_v11_latest")
+```
+
+### Storage Management
+
+```python
+from src.utils.cleanup_storage import audit_storage, cleanup_training_runs
+
+# Audit current storage usage
+storage_info = audit_storage()
+print(f"Total storage used: {storage_info['total_size']}")
+
+# Clean up old training runs (dry run)
+freed_space = cleanup_training_runs(keep_latest=2, dry_run=True)
+print(f"Would free: {freed_space} bytes")
+
+# Actually perform cleanup
+freed_space = cleanup_training_runs(keep_latest=2, dry_run=False)
+```
+
+### Configuration Management
+
+```python
+from src.utils.fix_config_path import update_config_paths
+
+# Update configuration paths for version migration
+update_config_paths(old_version="0.3", new_version="0.4")
+
+# Validate configuration after update
+validate_config()
+```
+
+### PDF Annotation
+
+```python
+from src.utils.pdf_annotator import PDFAnnotator
+
+# Create annotated PDF with detection results
+annotator = PDFAnnotator(detection_confidence_threshold=0.8)
+annotated_pdf = annotator.create_annotated_pdf(
+    detection_file="detections.json",
+    text_extraction_file="text_extraction.json",
+    pdf_file="input.pdf",
+    output_file="annotated_output.pdf"
+)
 ```
 
 ## Configuration

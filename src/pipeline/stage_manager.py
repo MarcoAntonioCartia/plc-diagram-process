@@ -65,7 +65,7 @@ class StageManager:
             ('training', 'Train or validate YOLO models', 'yolo_env', ['preparation']),
             ('detection', 'Run YOLO object detection', 'yolo_env', ['training']),
             ('ocr', 'Extract text from detected regions', 'ocr_env', ['detection']),
-            ('enhancement', 'Create CSV output and enhanced PDFs', 'core', ['ocr'])
+            ('postprocessing', 'Create CSV output and enhanced PDFs', 'core', ['ocr'])
         ]
         
         for name, description, env, deps in stage_configs:
@@ -93,7 +93,7 @@ class StageManager:
             'training': 'src.pipeline.stages.training_stage',
             'detection': 'src.pipeline.stages.detection_stage',
             'ocr': 'src.pipeline.stages.ocr_stage',
-            'enhancement': 'src.pipeline.stages.enhancement_stage'
+            'postprocessing': 'src.pipeline.stages.postprocessing_stage'
         }
         
         module_name = stage_module_map.get(stage_name)

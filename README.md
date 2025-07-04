@@ -82,6 +82,8 @@ plc-diagram-processor/
 │   ├── build_tools_installer.py # Build environment setup
 │   └── config/
 │       └── download_config.yaml # Storage configuration
+├── bin/                         # Executable scripts
+│   └── create_enhanced_pdf.py   # Complete pipeline script
 ├── src/
 │   ├── run_pipeline.py          # Main pipeline runner
 │   ├── config.py                # Configuration management
@@ -107,7 +109,10 @@ plc-diagram-processor/
 │   │   ├── gpu_manager.py             # GPU resource management
 │   │   ├── dataset_manager.py         # Dataset operations
 │   │   ├── model_manager.py           # Model operations
-│   │   └── network_drive_manager.py   # Network storage backend
+│   │   ├── network_drive_manager.py   # Network storage backend
+│   │   ├── pdf_annotator.py           # Native PDF annotation system
+│   │   ├── cleanup_storage.py         # Storage management utility
+│   │   └── fix_config_path.py         # Configuration path fixer
 │   └── preprocessing/           # Data preprocessing
 │       ├── SnipPdfToPng.py           # PDF to image conversion
 │       └── SnipPngToPdf.py           # PDF reconstruction
@@ -269,6 +274,38 @@ For each processed PDF, the pipeline generates:
 - `{pdf_name}_text_extraction.json` - Extracted text with metadata
 - `{pdf_name}_statistics.json` - Processing statistics
 - `complete_pipeline_summary.json` - Overall pipeline metrics
+
+## Utility Scripts
+
+### Complete Pipeline Script
+```bash
+# Run complete pipeline with enhanced PDF output
+python bin/create_enhanced_pdf.py --pdf 1150.pdf --confidence-threshold 0.8 --ocr-confidence 0.5
+```
+
+### Storage Management
+```bash
+# Audit current storage usage
+python src/utils/cleanup_storage.py --audit
+
+# Clean up old training runs and cache files (dry run)
+python src/utils/cleanup_storage.py --cleanup --keep-runs 2
+
+# Actually perform cleanup
+python src/utils/cleanup_storage.py --cleanup --force
+```
+
+### Configuration Management
+```bash
+# Fix configuration paths (e.g., update from 0.3 to 0.4)
+python src/utils/fix_config_path.py
+```
+
+### PDF Annotation System
+```bash
+# Create annotated PDFs with native PDF annotations
+python src/utils/pdf_annotator.py --detection-file detections.json --text-file text.json --pdf-file input.pdf --output output.pdf
+```
 
 ## Advanced Usage
 

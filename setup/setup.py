@@ -1836,6 +1836,13 @@ echo "Python: {self.venv_python}"
         except AttributeError:
             pass
         
+        # Pass WSL GPU info to build_tools_installer if available
+        if hasattr(self, 'wsl_gpu_info'):
+            try:
+                self.build_tools_installer.wsl_gpu_info = self.wsl_gpu_info
+            except AttributeError:
+                pass
+        
         if not self.build_tools_installer.install_paddleocr(capabilities):
             print("X Failed to install PaddleOCR")
             return False

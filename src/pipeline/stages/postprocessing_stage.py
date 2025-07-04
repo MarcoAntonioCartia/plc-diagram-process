@@ -1,5 +1,5 @@
 """
-Enhancement Stage for PLC Pipeline
+Postprocessing Stage for PLC Pipeline
 Creates CSV output and enhanced PDFs in core environment
 """
 
@@ -10,23 +10,23 @@ from typing import Dict, Any, List
 from ..base_stage import BaseStage
 
 
-class EnhancementStage(BaseStage):
-    """Stage 5: Enhancement - Create CSV output and enhanced PDFs"""
+class PostprocessingStage(BaseStage):
+    """Stage 5: Postprocessing - Create CSV output and enhanced PDFs"""
     
-    def __init__(self, name: str = "enhancement", 
+    def __init__(self, name: str = "postprocessing", 
                  description: str = "Create CSV output and enhanced PDFs",
                  required_env: str = "core", dependencies: list = None):
         super().__init__(name, description, required_env, dependencies or ["ocr"])
     
     def execute(self) -> Dict[str, Any]:
-        """Execute enhancement stage"""
-        print("X Starting enhancement stage...")
+        """Execute postprocessing stage"""
+        print("X Starting postprocessing stage...")
         
         # Get configuration
         from src.config import get_config
         config = get_config()
         
-        # Import enhancement modules
+        # Import postprocessing modules
         self._import_dependencies()
         
         # Find OCR results to process
@@ -70,7 +70,7 @@ class EnhancementStage(BaseStage):
     
     def execute_ci_safe(self) -> Dict[str, Any]:
         """CI-safe execution without heavy dependencies"""
-        print("X Running enhancement stage in CI-safe mode")
+        print("X Running postprocessing stage in CI-safe mode")
         
         return {
             'status': 'ci_mock',
@@ -88,25 +88,25 @@ class EnhancementStage(BaseStage):
         }
     
     def _import_dependencies(self):
-        """Import enhancement dependencies"""
+        """Import postprocessing dependencies"""
         try:
             # Import CSV formatter (should always work)
-            from src.output.csv_formatter import CSVFormatter
-            from src.output.area_grouper import AreaGrouper
+            from src.postprocessing.csv_formatter import CSVFormatter
+            from src.postprocessing.area_grouper import AreaGrouper
             self._csv_formatter = CSVFormatter
             self._area_grouper = AreaGrouper
             
             # Try to import PDF enhancement modules
             try:
-from src.utils.pdf_annotator import PDFAnnotator
-                self._pdf_creator = EnhancedPDFCreator
+                from src.utils.pdf_annotator import PDFAnnotator
+                self._pdf_creator = PDFAnnotator
                 self._pdf_available = True
-                print("  ✓ Enhancement modules available (including PDF)")
+                print("  ✓ Postprocessing modules available (including PDF)")
             except ImportError as pdf_error:
                 # PDF creation not available, but CSV should still work
                 self._pdf_creator = MockPDFCreator
                 self._pdf_available = False
-                print(f"  ⚠️  PDF enhancement not available: {pdf_error}")
+                print(f"    PDF enhancement not available: {pdf_error}")
                 print("  ✓ CSV output will still be created")
             
         except ImportError as e:
@@ -116,9 +116,9 @@ from src.utils.pdf_annotator import PDFAnnotator
                 self._area_grouper = MockAreaGrouper
                 self._pdf_creator = MockPDFCreator
                 self._pdf_available = False
-                print("  🔧 Using mock enhancement modules for CI")
+                print("  🔧 Using mock postprocessing modules for CI")
             else:
-                raise ImportError(f"Enhancement modules not available: {e}")
+                raise ImportError(f"Postprocessing modules not available: {e}")
     
     def _create_csv_output(self, text_files: List[Path], output_dir: Path, config) -> Dict[str, Any]:
         """Create CSV output from text extraction results"""

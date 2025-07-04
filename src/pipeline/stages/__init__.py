@@ -9,14 +9,14 @@ try:
     from .training_stage import TrainingStage
     from .detection_stage import DetectionStage
     from .ocr_stage import OcrStage
-    from .enhancement_stage import EnhancementStage
+    from .postprocessing_stage import PostprocessingStage
     
     __all__ = [
         'PreparationStage',
         'TrainingStage', 
         'DetectionStage',
         'OcrStage',
-        'EnhancementStage'
+        'PostprocessingStage'
     ]
 except ImportError:
     # In CI or when dependencies are missing, provide empty list

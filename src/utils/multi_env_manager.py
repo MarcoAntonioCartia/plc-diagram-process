@@ -98,12 +98,13 @@ class MultiEnvironmentManager:
         ocr_req = self.project_root / "requirements-ocr.txt"
 
         # Prefer CPU wheels when no NVIDIA GPU is present – CI runners.
+        # Use cu121 to match the main setup for consistency
         torch_index = "https://download.pytorch.org/whl/cpu"
         if shutil.which("nvidia-smi"):
             try:
-                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True)
+                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=10)
                 if out.returncode == 0 and out.stdout.strip():
-                    torch_index = "https://download.pytorch.org/whl/cu128"
+                    torch_index = "https://download.pytorch.org/whl/cu121"
             except Exception:
                 pass
 
@@ -113,9 +114,21 @@ class MultiEnvironmentManager:
             "-r", str(det_req),
         ]
 
-        # Use CPU Paddle when CUDA not available.
-        paddle_pkg = "paddlepaddle==3.0.0"
+        # Choose PaddlePaddle version based on GPU availability - match main setup logic
+        paddle_pkg = "paddlepaddle==3.0.0"  # Default to CPU
         paddle_ocr_pkg = "paddleocr==3.0.1"
+        paddle_extra_args = []  # Extra args for paddle installation
+        
+        # Check for GPU support using same logic as torch_index
+        if shutil.which("nvidia-smi"):
+            try:
+                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=10)
+                if out.returncode == 0 and out.stdout.strip():
+                    # GPU detected - use GPU version with official index
+                    paddle_pkg = "paddlepaddle-gpu==3.0.0"
+                    paddle_extra_args = ["-i", "https://www.paddlepaddle.org.cn/packages/stable/cu126/"]
+            except Exception:
+                pass  # Fallback to CPU version
 
         # Create a temporary requirements file without paddlepaddle-gpu that breaks on CPU runners
         filtered_ocr_req = self.project_root / ".ci_ocr_requirements.txt"
@@ -129,13 +142,16 @@ class MultiEnvironmentManager:
             # Fallback: if anything goes wrong use original file
             filtered_ocr_req = ocr_req
 
-        self._OCR_PKGS = [
-            "requests",
+        # Build OCR packages list with conditional index for GPU
+        self._OCR_PKGS = ["requests"]
+        if paddle_extra_args:
+            self._OCR_PKGS.extend(paddle_extra_args)
+        self._OCR_PKGS.extend([
             paddle_pkg,
             paddle_ocr_pkg,
             "-r", str(core_req),
             "-r", str(filtered_ocr_req),
-        ]
+        ])
 
     # ------------------------------------------------------------------
     # Public API
