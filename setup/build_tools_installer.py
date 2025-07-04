@@ -745,22 +745,40 @@ call "{vcvars_path}"
             return False
 
     def install_paddleocr(self, capabilities: Dict) -> bool:
-        """Install PaddleOCR with a two-phase strategy.
+        """Install PaddleOCR with GPU detection and appropriate version selection.
  
-        Phase 1 (preferred)  – minimal:
-          1. Install PaddlePaddle-GPU 3.0 from the official CN CUDA-12.6 index.
-          2. Install PaddleOCR (let pip resolve extras).
-          3. Verify import / basic init.
- 
-        If any of these steps fail, fall back to Phase 2 – the older
-        "dependencies-first" procedure that pre-installs critical wheels then
-        installs PaddlePaddle (GPU->CPU) and finally PaddleOCR.
+        Checks GPU capabilities first:
+        - If GPU is available: Install PaddlePaddle-GPU 3.0 from official CUDA index
+        - If no GPU: Install CPU version directly from PyPI
+        
+        Falls back to dependencies-first approach if direct installation fails.
         """
+        # Check GPU capabilities from the passed capabilities dict
+        gpu_info = capabilities.get("gpu_info", {})
+        has_gpu = gpu_info.get("has_nvidia_gpu", False) and gpu_info.get("has_cuda", False)
+        
+        # Also check WSL GPU info if available (for Windows systems)
+        wsl_gpu_available = False
+        if hasattr(self, 'wsl_gpu_info') and isinstance(getattr(self, 'wsl_gpu_info'), dict):
+            wsl_gpu_available = self.wsl_gpu_info.get('cuda_available', False)
+        
+        # Determine if we should install GPU or CPU version
+        install_gpu_version = has_gpu or wsl_gpu_available
+        
+        if install_gpu_version:
+            self.logger.info("GPU detected - installing PaddlePaddle-GPU version")
+            return self._install_paddleocr_gpu(capabilities)
+        else:
+            self.logger.info("No GPU detected - installing PaddlePaddle CPU version")
+            return self._install_paddleocr_cpu(capabilities)
+
+    def _install_paddleocr_gpu(self, capabilities: Dict) -> bool:
+        """Install PaddleOCR with GPU support"""
         self.logger.info("Phase 1 ➜ direct Paddle GPU wheel install ...")
 
         gpu_index = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
 
-        # --- Phase 1: minimal install -------------------------------------------------
+        # --- Phase 1: minimal GPU install -------------------------------------------------
         if self._install_package("paddlepaddle-gpu==3.0.0", ["-i", gpu_index]):
             self.logger.info("V PaddlePaddle-GPU installed successfully")
 
@@ -810,6 +828,60 @@ call "{vcvars_path}"
             return False
 
         self.logger.info("V PaddleOCR installed and verified via fallback path")
+        return True
+
+    def _install_paddleocr_cpu(self, capabilities: Dict) -> bool:
+        """Install PaddleOCR with CPU-only support"""
+        self.logger.info("Phase 1 ➜ direct Paddle CPU wheel install ...")
+
+        # --- Phase 1: minimal CPU install -------------------------------------------------
+        if self._install_package("paddlepaddle==3.0.0"):
+            self.logger.info("V PaddlePaddle-CPU installed successfully")
+
+            # try installing PaddleOCR straight away
+            if not self._install_package("paddleocr"):
+                self.logger.warning("PaddleOCR install failed – will fall back to dependencies-first method")
+            else:
+                if self._verify_paddleocr_installation():
+                    self.logger.info("V PaddleOCR verified – Phase 1 succeeded")
+                    return True
+                else:
+                    self.logger.warning("PaddleOCR import/initialisation failed after Phase 1 – will try full dependency path")
+        else:
+            self.logger.warning("PaddlePaddle-CPU wheel install failed – trying full dependency path")
+
+        # --- Phase 2: dependencies-first fallback ------------------------------------
+        self.logger.info("Phase 2 ➜ dependencies-first fallback ...")
+
+        dependencies = [
+            "numpy>=2.1",  # Allow modern NumPy compatible with PyTorch/Paddle
+            "opencv-python>=4.6.0",
+            "pillow>=8.2.0",
+            "pyyaml>=6.0",
+            "shapely>=1.7.0",
+            "pyclipper>=1.2.0",
+            "paddlex>=2.0.0"
+        ]
+
+        self.logger.info("Installing core dependencies prior to Paddle...")
+        for dep in dependencies:
+            self._install_package(dep)
+
+        # Install CPU version only
+        if not self._install_package("paddlepaddle==3.0.0"):
+            self.logger.error("Failed to install PaddlePaddle-CPU during fallback")
+            return False
+
+        # Install PaddleOCR (with deps to be safe)
+        if not self._install_package("paddleocr"):
+            self.logger.error("Failed to install PaddleOCR in fallback phase")
+            return False
+
+        if not self._verify_paddleocr_installation():
+            self.logger.error("PaddleOCR verification failed even after fallback")
+            return False
+
+        self.logger.info("V PaddleOCR installed and verified via CPU fallback path")
         return True
 
     def _verify_paddleocr_installation(self) -> bool:

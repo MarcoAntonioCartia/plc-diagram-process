@@ -17,8 +17,14 @@ def calculate_iou(box1: Dict[str, float], box2: Dict[str, float]) -> float:
         IoU value between 0 and 1
     """
     # Get coordinates
-    x1_1, y1_1, x2_1, y2_1 = box1['x1'], box1['y1'], box1['x2'], box1['y2']
-    x1_2, y1_2, x2_2, y2_2 = box2['x1'], box2['y1'], box2['x2'], box2['y2']
+    x1_1, y1_1, x2_1, y2_1 = box1['x1'], box1['y1'], box1['x2'], box1['y2'] # The coordinates are in the format of [x1, y1, x2, y2] since 
+    x1_2, y1_2, x2_2, y2_2 = box2['x1'], box2['y1'], box2['x2'], box2['y2'] # ocr uses this format, but the detection file uses the format of [x, y, width, height]
+                                                                            # so we need to convert the coordinates to the format of [x1, y1, x2, y2]
+                                                                            # we can do this by adding the width and height to the x and y coordinates
+                                                                            # and then subtracting the width and height from the x and y coordinates
+                                                                            # this will give us the coordinates in the format of [x1, y1, x2, y2]
+                                                                            # and then we can use these coordinates to calculate the IoU but I havent implemented it yet
+                                                                            # so we are using the format of [x1, y1, x2, y2] for now
     
     # Calculate intersection area
     x1_inter = max(x1_1, x1_2)

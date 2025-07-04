@@ -65,7 +65,7 @@ class StageManager:
             ('training', 'Train or validate YOLO models', 'yolo_env', ['preparation']),
             ('detection', 'Run YOLO object detection', 'yolo_env', ['training']),
             ('ocr', 'Extract text from detected regions', 'ocr_env', ['detection']),
-            ('enhancement', 'Create CSV output and enhanced PDFs', 'core', ['ocr'])
+            ('postprocessing', 'Create CSV output and enhanced PDFs', 'core', ['ocr'])
         ]
         
         for name, description, env, deps in stage_configs:
@@ -93,7 +93,7 @@ class StageManager:
             'training': 'src.pipeline.stages.training_stage',
             'detection': 'src.pipeline.stages.detection_stage',
             'ocr': 'src.pipeline.stages.ocr_stage',
-            'enhancement': 'src.pipeline.stages.enhancement_stage'
+            'postprocessing': 'src.pipeline.stages.postprocessing_stage'
         }
         
         module_name = stage_module_map.get(stage_name)
@@ -212,11 +212,17 @@ class StageManager:
                 }
             stages_to_run = stage_names
         
-        print(f"\nX Starting pipeline execution")
-        print(f"Stages to run: {stages_to_run}")
-        print(f"CI Mode: {self.is_ci}")
-        print(f"Skip completed: {skip_completed}")
-        print(f"Force re-run: {force_stages}")
+        minimal_mode = (
+            os.environ.get("PLCDP_MINIMAL_OUTPUT", "0") == "1" or
+            os.environ.get("PLCDP_QUIET", "0") == "1"
+        )
+        
+        if not minimal_mode:
+            print(f"\nX Starting pipeline execution")
+            print(f"Stages to run: {stages_to_run}")
+            print(f"CI Mode: {self.is_ci}")
+            print(f"Skip completed: {skip_completed}")
+            print(f"Force re-run: {force_stages}")
         
         results = {}
         overall_success = True
@@ -225,13 +231,19 @@ class StageManager:
         for stage_name in stages_to_run:
             stage = self.stages[stage_name]
             
+            if not minimal_mode:
+                print(f"\nX Preparing to run stage: {stage_name}")
+                print(f"  Environment: {stage.required_env}")
+                print(f"  Dependencies: {stage.dependencies}")
+            
             # Setup stage
             stage.setup(config.get(stage_name, {}), self.state_dir)
             
             # Check if should skip
             if (skip_completed and stage.is_completed() and 
                 stage_name not in force_stages):
-                print(f"X Skipping completed stage: {stage_name}")
+                if not minimal_mode:
+                    print(f"X Skipping completed stage: {stage_name}")
                 results[stage_name] = {
                     'skipped': True,
                     'reason': 'already_completed'
@@ -240,16 +252,46 @@ class StageManager:
             
             # Clear state if forcing re-run
             if stage_name in force_stages:
+                if not minimal_mode:
+                    print(f"X Forcing re-run of stage: {stage_name}")
                 stage.clear_state()
             
             # Run stage
+            if not minimal_mode:
+                print(f"X Starting execution of stage: {stage_name}")
+            
             result = stage.run()
             results[stage_name] = result.to_dict()
+            
+            if not minimal_mode:
+                if result.success:
+                    print(f"V Stage {stage_name} completed successfully")
+                    # Show key results if available
+                    if result.data:
+                        if 'output_directory' in result.data:
+                            print(f"  Output directory: {result.data['output_directory']}")
+                        if 'total_detections' in result.data:
+                            print(f"  Total detections: {result.data['total_detections']}")
+                        if 'total_text_regions' in result.data:
+                            print(f"  Total text regions: {result.data['total_text_regions']}")
+                        if 'files_processed' in result.data:
+                            print(f"  Files processed: {result.data['files_processed']}")
+                else:
+                    print(f"X Stage {stage_name} failed: {result.error}")
             
             if not result.success:
                 overall_success = False
                 print(f"X Pipeline failed at stage: {stage_name}")
+                print(f"  Error: {result.error}")
                 break
+            
+            if not minimal_mode:
+                print(f"X Stage {stage_name} completed successfully")
+                print(f"X DEBUG: About to proceed to next stage...")
+                print(f"X DEBUG: Current stage index: {stages_to_run.index(stage_name)}")
+                print(f"X DEBUG: Total stages: {len(stages_to_run)}")
+                print(f"X DEBUG: Remaining stages: {stages_to_run[stages_to_run.index(stage_name)+1:]}")
+                print(f"X Proceeding to next stage...")
         
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
@@ -268,11 +310,12 @@ class StageManager:
         # Save execution summary
         self._save_execution_summary(summary)
         
-        print(f"\nX Pipeline execution completed")
-        print(f"Success: {overall_success}")
-        print(f"Duration: {duration:.2f}s")
-        print(f"Stages run: {summary['stages_run']}")
-        print(f"Stages skipped: {summary['stages_skipped']}")
+        if not minimal_mode:
+            print(f"\nX Pipeline execution completed")
+            print(f"Success: {overall_success}")
+            print(f"Duration: {duration:.2f}s")
+            print(f"Stages run: {summary['stages_run']}")
+            print(f"Stages skipped: {summary['stages_skipped']}")
         
         return summary
     

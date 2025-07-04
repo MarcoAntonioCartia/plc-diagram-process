@@ -33,22 +33,30 @@ def main() -> None:
     with open(args.input, "r", encoding="utf-8") as f:
         input_data = json.load(f)
 
-    # Ensure Torch is loaded first – not strictly required inside dedicated env
-    os.environ.setdefault("CUDA_MODULE_LOADING", "LAZY")
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+    # Removed problematic environment variables that cause performance issues
+    # PYTORCH_CUDA_ALLOC_CONF with max_split_size_mb:128 causes massive slowdown
+    # These were added for compatibility but hurt training performance severely
+    pass
 
     try:
         print(f"DEBUG: Starting detection worker with input: {input_data}")
         
-        # Check if model file exists
+        # Use the same model loading logic as yolo11_infer.py
+        # Don't pass model_path to force auto-detection of best custom model
         model_path = input_data.get("model_path")
+        
+        # If a specific model path is provided, verify it exists
         if model_path and not Path(model_path).exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
+            print(f"WARNING: Specified model not found: {model_path}")
+            print("Will use auto-detection to find best custom model instead")
+            model_path = None
         
         from src.detection.detect_pipeline import PLCDetectionPipeline  # type: ignore
 
+        # Pass None for model_path to trigger auto-detection of best custom model
+        # This uses the same logic as yolo11_infer.py load_model() function
         pipeline = PLCDetectionPipeline(
-            model_path=input_data.get("model_path"),
+            model_path=None,  # Force auto-detection of best custom model
             confidence_threshold=input_data.get("confidence_threshold", 0.25),
         )
 
@@ -64,6 +72,9 @@ def main() -> None:
             output_dir = Path(input_data.get("output_dir", "detection_out"))
             print(f"DEBUG: Processing single PDF - diagrams_folder={pdf_parent}, output_folder={output_dir}")
             
+            # Get list of PDF files to process
+            pdf_files = [Path(pdf_path)]
+            
             results = pipeline.process_pdf_folder(
                 diagrams_folder=pdf_parent,
                 output_folder=output_dir,
@@ -77,6 +88,9 @@ def main() -> None:
             output_dir = Path(input_data.get("output_dir", "detection_out"))
             print(f"DEBUG: Processing folder - diagrams_folder={diagrams_folder}, output_folder={output_dir}")
             
+            # Get list of PDF files to process
+            pdf_files = list(diagrams_folder.glob("*.pdf"))
+            
             results = pipeline.process_pdf_folder(
                 diagrams_folder=diagrams_folder,
                 output_folder=output_dir,
@@ -87,8 +101,44 @@ def main() -> None:
         else:
             raise ValueError("Either pdf_path or pdf_folder must be provided")
 
-        print(f"DEBUG: Detection completed successfully, results: {results}")
-        out = {"status": "success", "results": str(results)}
+        print(f"DEBUG: Detection pipeline returned: {results}")
+        
+        # Count actual detection files created and gather statistics
+        detection_files = list(output_dir.glob("*_detections.json"))
+        total_detections = 0
+        processed_pdfs = len(pdf_files)
+        
+        print(f"DEBUG: Found {len(detection_files)} detection files in {output_dir}")
+        
+        for det_file in detection_files:
+            try:
+                with open(det_file, 'r') as f:
+                    det_data = json.load(f)
+                    # Count detections across all pages
+                    for page in det_data.get("pages", []):
+                        total_detections += len(page.get("detections", []))
+                print(f"DEBUG: Processed {det_file.name}")
+            except Exception as e:
+                print(f"WARNING: Could not read detection file {det_file}: {e}")
+        
+        print(f"DEBUG: Total detections found: {total_detections}")
+        
+        # Return structured data instead of just the output directory string
+        out = {
+            "status": "success",
+            "results": {
+                "output_directory": str(output_dir),
+                "processed_pdfs": processed_pdfs,
+                "detection_files_created": [str(f) for f in detection_files],
+                "total_detections": total_detections,
+                "pipeline_output": str(results),
+                "processing_summary": f"Successfully processed {processed_pdfs} PDFs, created {len(detection_files)} detection files with {total_detections} total detections"
+            }
+        }
+        
+        print(f"DEBUG: Detection worker completed successfully")
+        print(f"DEBUG: Output directory: {output_dir}")
+        print(f"DEBUG: Detection files: {[f.name for f in detection_files]}")
 
     except Exception as exc:
         import traceback
@@ -106,4 +156,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main() 
+    main()

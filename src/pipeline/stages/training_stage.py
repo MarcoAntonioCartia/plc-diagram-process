@@ -130,7 +130,8 @@ class TrainingStage(BaseStage):
             progress.update_progress(f"Starting training with {pretrained_info['model_name']}...")
             training_result = self._run_training_multi_env(env_manager, config, pretrained_info, progress)
             
-            if training_result['status'] == 'success':
+            # Check if training actually succeeded
+            if training_result['status'] == 'success' and 'custom_model_name' in training_result:
                 progress.complete_file("Training", f"Model trained successfully: {training_result['custom_model_name']}")
                 return {
                     'status': 'success',
@@ -142,11 +143,15 @@ class TrainingStage(BaseStage):
                     'message': f"Training completed: {training_result['custom_model_name']}"
                 }
             else:
-                progress.error_file("Training", f"Training failed: {training_result['error']}")
+                # Training failed - extract error message
+                error_msg = training_result.get('error', 'Training failed with unknown error')
+                progress.error_file("Training", f"Training failed: {error_msg}")
+                print(f"X Training stage failed: {error_msg}")
                 return {
                     'status': 'error',
-                    'error': f"Training failed: {training_result['error']}",
-                    'environment': 'yolo_env'
+                    'error': f"Training failed: {error_msg}",
+                    'environment': 'yolo_env',
+                    'training_result': training_result
                 }
             
         except Exception as e:
@@ -281,7 +286,7 @@ class TrainingStage(BaseStage):
         """Setup training configuration without importing PyTorch"""
         training_config = {
             'epochs': 100,
-            'batch_size': 16,
+            'batch_size': 8,
             'learning_rate': 0.001,
             'image_size': 640,
             'device': 'cuda',  # Assume CUDA in multi-env mode
@@ -498,7 +503,13 @@ class TrainingStage(BaseStage):
             # Get training configuration from stage config (passed from command line)
             stage_config = self.config or {}
             epochs = stage_config.get('epochs', 50)  # Default 50, can be overridden
-            batch_size = stage_config.get('batch_size', 16)  # Default 16, can be overridden
+            batch_size = stage_config.get('batch_size', 8)  # Default 8 for optimal GPU memory usage
+            
+            # Prevent excessively large batch sizes that cause GPU memory issues
+            if batch_size > 16:
+                print(f"WARNING: Large batch size ({batch_size}) may cause GPU memory issues. Consider using batch_size <= 16 for better performance.")
+                print(f"Reducing batch size from {batch_size} to 16 for optimal performance.")
+                batch_size = 16
             
             # Prepare training payload
             training_payload = {
@@ -510,21 +521,31 @@ class TrainingStage(BaseStage):
                 'patience': max(10, epochs // 2),  # Adaptive patience based on epochs
                 'project_name': f"plc_symbol_detector_{pretrained_info['model_name'].replace('.pt', '')}",
                 'output_dir': str(config.get_model_path('', 'custom').parent),
-                'config': stage_config
+                'config': stage_config,
+                'verbose': os.environ.get("PLCDP_VERBOSE", "0") == "1"  # Pass verbose flag to worker
             }
             
             progress.update_progress("Running YOLO training in isolated environment...")
             
-            # Run training worker (this would need to be implemented in multi_env_manager)
+            # Run training worker (this calls yolo11_train.py which automatically copies to custom dir)
             result = env_manager.run_training_pipeline(training_payload)
             
             if result.get('status') == 'success':
                 training_data = result.get('results', {})
                 custom_model_name = f"{training_payload['project_name']}_best.pt"
                 
+                # Verify the custom model was actually created
+                custom_model_path = config.get_model_path(custom_model_name, 'custom')
+                if not custom_model_path.exists():
+                    print(f"WARNING: Custom model not found at expected location: {custom_model_path}")
+                    print("Training completed but model copy may have failed")
+                else:
+                    print(f"SUCCESS: Custom model verified at: {custom_model_path}")
+                
                 return {
                     'status': 'success',
                     'custom_model_name': custom_model_name,
+                    'custom_model_path': str(custom_model_path),
                     'training_data': training_data,
                     'epochs_completed': training_data.get('epochs_completed', training_payload['epochs']),
                     'best_mAP50': training_data.get('best_mAP50', 0.0)

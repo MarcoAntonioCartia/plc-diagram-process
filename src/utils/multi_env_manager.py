@@ -98,12 +98,13 @@ class MultiEnvironmentManager:
         ocr_req = self.project_root / "requirements-ocr.txt"
 
         # Prefer CPU wheels when no NVIDIA GPU is present – CI runners.
+        # Use cu121 to match the main setup for consistency
         torch_index = "https://download.pytorch.org/whl/cpu"
         if shutil.which("nvidia-smi"):
             try:
-                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True)
+                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=10)
                 if out.returncode == 0 and out.stdout.strip():
-                    torch_index = "https://download.pytorch.org/whl/cu128"
+                    torch_index = "https://download.pytorch.org/whl/cu121"
             except Exception:
                 pass
 
@@ -113,9 +114,21 @@ class MultiEnvironmentManager:
             "-r", str(det_req),
         ]
 
-        # Use CPU Paddle when CUDA not available.
-        paddle_pkg = "paddlepaddle==3.0.0"
+        # Choose PaddlePaddle version based on GPU availability - match main setup logic
+        paddle_pkg = "paddlepaddle==3.0.0"  # Default to CPU
         paddle_ocr_pkg = "paddleocr==3.0.1"
+        paddle_extra_args = []  # Extra args for paddle installation
+        
+        # Check for GPU support using same logic as torch_index
+        if shutil.which("nvidia-smi"):
+            try:
+                out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=10)
+                if out.returncode == 0 and out.stdout.strip():
+                    # GPU detected - use GPU version with official index
+                    paddle_pkg = "paddlepaddle-gpu==3.0.0"
+                    paddle_extra_args = ["-i", "https://www.paddlepaddle.org.cn/packages/stable/cu126/"]
+            except Exception:
+                pass  # Fallback to CPU version
 
         # Create a temporary requirements file without paddlepaddle-gpu that breaks on CPU runners
         filtered_ocr_req = self.project_root / ".ci_ocr_requirements.txt"
@@ -129,13 +142,16 @@ class MultiEnvironmentManager:
             # Fallback: if anything goes wrong use original file
             filtered_ocr_req = ocr_req
 
-        self._OCR_PKGS = [
-            "requests",
+        # Build OCR packages list with conditional index for GPU
+        self._OCR_PKGS = ["requests"]
+        if paddle_extra_args:
+            self._OCR_PKGS.extend(paddle_extra_args)
+        self._OCR_PKGS.extend([
             paddle_pkg,
             paddle_ocr_pkg,
             "-r", str(core_req),
             "-r", str(filtered_ocr_req),
-        ]
+        ])
 
     # ------------------------------------------------------------------
     # Public API
@@ -355,45 +371,97 @@ class MultiEnvironmentManager:
         if not script_path.exists():
             raise FileNotFoundError(script_path)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
+        # Create temporary files that persist during the entire worker execution
+        tmpdir_path = None
+        input_file = None
+        output_file = None
+        
+        try:
+            # Create temporary directory manually for better control
+            tmpdir_path = Path(tempfile.mkdtemp(prefix=f"plc_worker_{worker_script.replace('.py', '')}_"))
             input_file = tmpdir_path / "in.json"
             output_file = tmpdir_path / "out.json"
-            input_file.write_text(json.dumps(input_payload, indent=2))
+            
+            # Write input file with explicit encoding and flushing
+            with open(input_file, 'w', encoding='utf-8') as f:
+                json.dump(input_payload, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())  # Force write to disk
+            
+            # Verify input file was written correctly
+            if not input_file.exists():
+                raise RuntimeError(f"Failed to create input file: {input_file}")
+            
+            print(f"[MultiEnv] DEBUG: Created temp files in {tmpdir_path}")
+            print(f"[MultiEnv] DEBUG: Input file: {input_file} (exists: {input_file.exists()})")
 
             env_vars = os.environ.copy()
             env_vars["PYTHONPATH"] = str(self.project_root)
 
             MAX_RETRIES = 2
-            TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "1800"))  # 30 min default
+            # Different timeouts for different workers
+            if "ocr_worker" in worker_script:
+                TIMEOUT_SEC = int(os.getenv("PLC_OCR_TIMEOUT", "300"))  # 5 minutes for OCR
+            elif "training_worker" in worker_script:
+                TIMEOUT_SEC = int(os.getenv("PLC_TRAINING_TIMEOUT", "1800"))  # 30 minutes for training
+            else:
+                TIMEOUT_SEC = int(os.getenv("PLC_WORKER_TIMEOUT", "600"))  # 10 minutes default
 
             attempt = 0
-            while True:
+            while attempt < MAX_RETRIES:
                 attempt += 1
                 try:
-                    completed = subprocess.run(
-                        [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
-                        env=env_vars,
-                        timeout=TIMEOUT_SEC,
-                        capture_output=True,
-                        text=True,
-                        encoding='utf-8',
-                        errors='replace'  # Replace problematic characters instead of crashing
-                    )
-
-                    if completed.returncode != 0:
-                        raise subprocess.CalledProcessError(
-                            completed.returncode, completed.args, output=completed.stdout, stderr=completed.stderr,
+                    print(f"[MultiEnv] Starting worker {worker_script} (attempt {attempt}/{MAX_RETRIES})")
+                    print(f"[MultiEnv] Command: {env.python} {script_path} --input {input_file} --output {output_file}")
+                    
+                    # Check if verbose mode is enabled
+                    verbose_mode = os.environ.get("PLCDP_VERBOSE", "0") == "1"
+                    
+                    if verbose_mode:
+                        # Direct output in verbose mode - NO tampering with worker output
+                        print(f"[MultiEnv] Running in verbose mode - direct output...")
+                        completed = subprocess.run(
+                            [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
+                            env=env_vars,
+                            timeout=TIMEOUT_SEC,
+                            # No output capture - let it go directly to console
+                        )
+                        
+                        if completed.returncode != 0:
+                            raise subprocess.CalledProcessError(completed.returncode, completed.args)
+                    else:
+                        # Capture output (original behavior)
+                        completed = subprocess.run(
+                            [str(env.python), str(script_path), "--input", str(input_file), "--output", str(output_file)],
+                            env=env_vars,
+                            timeout=TIMEOUT_SEC,
+                            capture_output=True,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace'  # Replace problematic characters instead of crashing
                         )
 
+                        if completed.returncode != 0:
+                            raise subprocess.CalledProcessError(
+                                completed.returncode, completed.args, output=completed.stdout, stderr=completed.stderr,
+                            )
+
+                    # Check if output file was created
+                    if not output_file.exists():
+                        raise RuntimeError(f"Worker completed but output file not found: {output_file}")
+
                     # Parse result JSON – may still include error status inside
-                    result = json.loads(output_file.read_text())
-                    return result
+                    try:
+                        with open(output_file, 'r', encoding='utf-8') as f:
+                            result = json.load(f)
+                        return result
+                    except json.JSONDecodeError as e:
+                        raise RuntimeError(f"Failed to parse worker output JSON: {e}")
 
                 except subprocess.TimeoutExpired:
                     err = f"Worker {worker_script} timed out after {TIMEOUT_SEC}s (attempt {attempt}/{MAX_RETRIES})"
                     print(f"[MultiEnv] {err}")
-                    if attempt > MAX_RETRIES:
+                    if attempt >= MAX_RETRIES:
                         return {"status": "error", "error": err}
                     continue  # retry
                 except subprocess.CalledProcessError as exc:
@@ -405,9 +473,26 @@ class MultiEnvironmentManager:
                         f"STDERR: {stderr_output}"
                     )
                     print(f"[MultiEnv] {err_msg} (attempt {attempt}/{MAX_RETRIES})")
-                    if attempt > MAX_RETRIES:
+                    if attempt >= MAX_RETRIES:
                         return {"status": "error", "error": err_msg}
                     continue
+                except Exception as exc:
+                    err_msg = f"Worker {worker_script} failed with unexpected error: {exc}"
+                    print(f"[MultiEnv] {err_msg} (attempt {attempt}/{MAX_RETRIES})")
+                    if attempt >= MAX_RETRIES:
+                        return {"status": "error", "error": err_msg}
+                    continue
+            
+            return {"status": "error", "error": f"Worker {worker_script} failed after {MAX_RETRIES} attempts"}
+            
+        finally:
+            # Clean up temporary directory
+            if tmpdir_path and tmpdir_path.exists():
+                try:
+                    shutil.rmtree(tmpdir_path)
+                    print(f"[MultiEnv] DEBUG: Cleaned up temp directory {tmpdir_path}")
+                except Exception as e:
+                    print(f"[MultiEnv] WARNING: Failed to clean up temp directory {tmpdir_path}: {e}")
 
     # ------------------------------------------------------------------
     # Dependency pre-resolution – saves 30 min installs when impossible

@@ -115,6 +115,25 @@ class BaseStage(ABC):
             print(f"Warning: Could not load state for {self.name}: {e}")
             return None
     
+    def get_dependency_state(self, dependency_name: str) -> Optional[StageResult]:
+        """Load state of a dependency stage"""
+        if not self.state_file:
+            return None
+        
+        state_dir = self.state_file.parent
+        dep_state_file = state_dir / f"{dependency_name}_state.json"
+        
+        if not dep_state_file.exists():
+            return None
+        
+        try:
+            with open(dep_state_file, 'r') as f:
+                state = json.load(f)
+            return StageResult.from_dict(state)
+        except Exception as e:
+            print(f"Warning: Could not load dependency state for {dependency_name}: {e}")
+            return None
+    
     def save_state(self, result: StageResult) -> None:
         """Save stage state"""
         if not self.state_file:
@@ -134,6 +153,13 @@ class BaseStage(ABC):
             except Exception as e:
                 print(f"Warning: Could not clear state for {self.name}: {e}")
     
+    def _is_minimal_mode(self) -> bool:
+        """Check if minimal output mode is enabled"""
+        return (
+            os.environ.get("PLCDP_MINIMAL_OUTPUT", "0") == "1" or
+            os.environ.get("PLCDP_QUIET", "0") == "1"
+        )
+    
     def run(self) -> StageResult:
         """
         Run the stage with timing and error handling
@@ -141,11 +167,14 @@ class BaseStage(ABC):
         Returns:
             StageResult: Result of stage execution
         """
-        print(f"\n{'='*50}")
-        print(f"Stage {self.name.upper()}: {self.description}")
-        print(f"Environment: {self.required_env}")
-        print(f"CI Mode: {self.is_ci}")
-        print(f"{'='*50}")
+        minimal_mode = self._is_minimal_mode()
+        
+        if not minimal_mode:
+            print(f"\n{'='*50}")
+            print(f"Stage {self.name.upper()}: {self.description}")
+            print(f"Environment: {self.required_env}")
+            print(f"CI Mode: {self.is_ci}")
+            print(f"{'='*50}")
         
         start_time = time.time()
         
@@ -170,13 +199,15 @@ class BaseStage(ABC):
             # Save state
             self.save_state(result)
             
-            print(f"V Stage {self.name} completed successfully in {duration:.2f}s")
+            if not minimal_mode:
+                print(f"V Stage {self.name} completed successfully in {duration:.2f}s")
             return result
             
         except Exception as e:
             duration = time.time() - start_time
             error_msg = f"Stage {self.name} failed: {str(e)}"
-            print(f"X {error_msg}")
+            if not minimal_mode:
+                print(f"X {error_msg}")
             
             result = StageResult(success=False, error=error_msg, duration=duration)
             self.save_state(result)

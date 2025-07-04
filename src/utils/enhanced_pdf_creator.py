@@ -142,16 +142,117 @@ class EnhancedPDFCreator:
         for page_num in range(len(original_doc)):
             original_page = original_doc[page_num]
             
-            # Single page: PDF + Both (Combined)
-            page = enhanced_doc.new_page(width=original_page.rect.width, 
-                                       height=original_page.rect.height)
-            page.show_pdf_page(original_page.rect, original_doc, page_num)
+            # Create new page with proper orientation handling
+            page = self._create_page_with_orientation(enhanced_doc, original_page)
+            
+            # Show original PDF content with proper rotation
+            self._show_pdf_page_with_rotation(page, original_doc, page_num, original_page)
+            
             self._add_page_title(page, "Enhanced PLC Diagram", 1)
-            self._draw_detections_only(page, detection_data, page_num + 1)
-            self._draw_text_regions_only(page, text_data, page_num + 1, original_page.rect)
+            self._draw_detections_only(page, detection_data, page_num + 1, original_page)
+            self._draw_text_regions_only(page, text_data, page_num + 1, original_page)
             self._add_combined_legend(page, detection_data, text_data, page_num + 1)
         
         return enhanced_doc
+    
+    def _create_page_with_orientation(self, enhanced_doc: fitz.Document, original_page: fitz.Page) -> fitz.Page:
+        """Create a new page in landscape orientation for proper display"""
+        # For 90° rotated PDFs, we want to create a landscape page
+        # that matches the visual orientation of the content
+        if original_page.rotation == 90:
+            # Create landscape page (width > height)
+            # Use the rect dimensions which represent the visual layout
+            page_width = original_page.rect.width   # 3370 (landscape width)
+            page_height = original_page.rect.height # 2384 (landscape height)
+        else:
+            # For non-rotated PDFs, use original dimensions
+            page_width = original_page.rect.width
+            page_height = original_page.rect.height
+        
+        print(f"Creating page with landscape dimensions: {page_width} x {page_height}")
+        print(f"Original rotation: {original_page.rotation}°")
+        
+        # Create page with landscape dimensions
+        page = enhanced_doc.new_page(width=page_width, height=page_height)
+        
+        return page
+    
+    def _show_pdf_page_with_rotation(self, page: fitz.Page, original_doc: fitz.Document, 
+                                   page_num: int, original_page: fitz.Page):
+        """Show PDF page content in landscape orientation"""
+        page_rect = page.rect
+        original_rotation = original_page.rotation
+        
+        print(f"Showing PDF page {page_num + 1} in landscape orientation")
+        print(f"Target page dimensions: {page_rect.width} x {page_rect.height}")
+        print(f"Original rotation: {original_rotation}°")
+        
+        if original_rotation == 90:
+            # For 90° rotated PDFs, we need to rotate the content to landscape
+            # Create a transformation matrix to rotate the content
+            # The content should be rotated 90° counter-clockwise to appear upright in landscape
+            
+            # Get the original MediaBox (portrait) dimensions
+            mediabox = original_page.mediabox
+            
+            # Create transformation matrix for 90° counter-clockwise rotation
+            # This will rotate the portrait content to landscape orientation
+            matrix = fitz.Matrix(0, -1, 1, 0, 0, page_rect.height)
+            
+            # Show the PDF content with rotation transformation
+            page.show_pdf_page(page_rect, original_doc, page_num, matrix=matrix)
+            
+            print(f"PDF content rotated to landscape orientation")
+        else:
+            # For non-rotated PDFs, show normally
+            page.show_pdf_page(page_rect, original_doc, page_num)
+            
+            print(f"PDF content displayed without rotation")
+    
+    def _transform_coordinates_for_rotation(self, x1: float, y1: float, x2: float, y2: float, 
+                                          original_page: fitz.Page) -> Tuple[float, float, float, float]:
+        """Transform coordinates for rotated pages"""
+        rotation = original_page.rotation
+        mediabox = original_page.mediabox
+        
+        print(f"Transforming coordinates ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}) for {rotation}° rotation")
+        
+        if rotation == 90:
+            # For 90° rotation: (x, y) -> (y, mediabox.height - x)
+            # The detection coordinates are in landscape view, need to map to portrait MediaBox
+            new_x1 = y1
+            new_y1 = mediabox.height - x2
+            new_x2 = y2
+            new_y2 = mediabox.height - x1
+            
+            # Ensure coordinates are in correct order (x1 < x2, y1 < y2)
+            if new_x1 > new_x2:
+                new_x1, new_x2 = new_x2, new_x1
+            if new_y1 > new_y2:
+                new_y1, new_y2 = new_y2, new_y1
+                
+            print(f"90° transform: ({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}) -> ({new_x1:.1f}, {new_y1:.1f}, {new_x2:.1f}, {new_y2:.1f})")
+            return new_x1, new_y1, new_x2, new_y2
+            
+        elif rotation == 180:
+            # For 180° rotation: (x, y) -> (mediabox.width - x, mediabox.height - y)
+            new_x1 = mediabox.width - x2
+            new_y1 = mediabox.height - y2
+            new_x2 = mediabox.width - x1
+            new_y2 = mediabox.height - y1
+            return new_x1, new_y1, new_x2, new_y2
+            
+        elif rotation == 270:
+            # For 270° rotation: (x, y) -> (mediabox.width - y, x)
+            new_x1 = mediabox.width - y2
+            new_y1 = x1
+            new_x2 = mediabox.width - y1
+            new_y2 = x2
+            return new_x1, new_y1, new_x2, new_y2
+            
+        else:
+            # No rotation or unsupported rotation
+            return x1, y1, x2, y2
     
     def _add_page_title(self, page: fitz.Page, title: str, page_num: int):
         """Add title to page"""
@@ -160,13 +261,16 @@ class EnhancedPDFCreator:
         page.insert_text(fitz.Point(15, 25), title, fontsize=self.font_size + 2, 
                         color=self.colors["page_title"])
     
-    def _draw_detections_only(self, page: fitz.Page, detection_data: Dict, target_page: int):
-        """Draw only YOLO detection boxes"""
+    def _draw_detections_only(self, page: fitz.Page, detection_data: Dict, target_page: int, original_page: fitz.Page = None):
+        """Draw YOLO detection boxes with proper snippet-based coordinate transformation"""
+        
         for page_data in detection_data.get("pages", []):
             page_num = page_data.get("page", page_data.get("page_num", 1))
             if page_num != target_page:
                 continue
-                
+            
+            print(f"Processing detections for page {page_num}")
+            
             for detection in page_data.get("detections", []):
                 confidence = detection.get("confidence", 0.0)
                 
@@ -174,40 +278,147 @@ class EnhancedPDFCreator:
                 if confidence < self.detection_confidence_threshold:
                     continue
                 
-                # Get global bbox
-                bbox = detection.get("bbox_global", detection.get("global_bbox", None))
-                if isinstance(bbox, dict):
-                    bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
-                if not (isinstance(bbox, list) and len(bbox) == 4):
+                # Get snippet information
+                snippet_source = detection.get("snippet_source", "")
+                snippet_position = detection.get("snippet_position", {})
+                snippet_bbox = detection.get("bbox_snippet", {})
+                
+                if not snippet_source or not snippet_position or not snippet_bbox:
                     continue
                 
-                x1, y1, x2, y2 = bbox
+                # Extract grid position from snippet
+                row = snippet_position.get("row", 0)
+                col = snippet_position.get("col", 0)
                 
-                # Create rectangle
-                rect = fitz.Rect(x1, y1, x2, y2)
+                # Get snippet coordinates
+                sx1 = snippet_bbox.get("x1", 0)
+                sy1 = snippet_bbox.get("y1", 0)
+                sx2 = snippet_bbox.get("x2", 0)
+                sy2 = snippet_bbox.get("y2", 0)
                 
-                # Choose color based on confidence level
-                if confidence >= 0.95:
-                    box_color = self.colors["confidence_high"]
-                elif confidence >= 0.85:
-                    box_color = self.colors["confidence_medium"]
-                else:
-                    box_color = self.colors["detection_box"]
+                # Transform snippet coordinates to PDF coordinates
+                pdf_coords = self._transform_snippet_to_pdf(sx1, sy1, sx2, sy2, row, col, page, original_page)
                 
-                # Draw box
-                page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
-                
-                # Add label
-                class_name = detection.get("class_name", "unknown")
-                label = f"{class_name} {confidence:.0%}"
-                
-                # Position label above box
-                text_point = fitz.Point(x1, y1 - 8)
-                page.insert_text(text_point, label, fontsize=self.font_size - 1, 
-                                color=self.colors["text_color"])
+                if pdf_coords:
+                    x1, y1, x2, y2 = pdf_coords
+                    
+                    # Create rectangle
+                    rect = fitz.Rect(x1, y1, x2, y2)
+                    
+                    # Choose color based on confidence level
+                    if confidence >= 0.95:
+                        box_color = self.colors["confidence_high"]
+                    elif confidence >= 0.85:
+                        box_color = self.colors["confidence_medium"]
+                    else:
+                        box_color = self.colors["detection_box"]
+                    
+                    # Draw box
+                    page.draw_rect(rect, color=box_color, width=self.line_width, fill=None)
+                    
+                    # Add label
+                    class_name = detection.get("class_name", "unknown")
+                    label = f"{class_name} {confidence:.0%}"
+                    
+                    # Position label above box
+                    label_x, label_y = x1, y1 - 8
+                    text_point = fitz.Point(label_x, label_y)
+                    page.insert_text(text_point, label, fontsize=self.font_size - 1, 
+                                    color=self.colors["text_color"])
+            break
+    
+    def _transform_snippet_to_pdf(self, sx1: float, sy1: float, sx2: float, sy2: float, 
+                                 row: int, col: int, page: fitz.Page, original_page: fitz.Page) -> tuple:
+        """Transform snippet coordinates to PDF coordinates using proper grid mapping"""
+        
+        # Get the original image dimensions from the detection data
+        # Based on the coordinate analysis: original image is 9362x6623
+        original_width = 9362
+        original_height = 6623
+        
+        # Snippet dimensions
+        snippet_width = 1500
+        snippet_height = 1200
+        
+        # Grid configuration: 6 rows x 4 columns (rows 0-5, cols 2-5)
+        grid_rows = 6
+        grid_cols = 4
+        
+        # Calculate the actual grid cell size in original image coordinates
+        cell_width = original_width / grid_cols
+        cell_height = original_height / grid_rows
+        
+        # Map column 2-5 to 0-3
+        grid_col = col - 2
+        if grid_col < 0 or grid_col >= grid_cols:
+            print(f"Warning: Invalid column {col}, expected 2-5")
+            return None
+            
+        if row < 0 or row >= grid_rows:
+            print(f"Warning: Invalid row {row}, expected 0-5")
+            return None
+        
+        # Calculate the base position of this grid cell in original image coordinates
+        cell_base_x = grid_col * cell_width
+        cell_base_y = row * cell_height
+        
+        # Convert snippet coordinates to original image coordinates
+        # The snippet coordinates are relative to the cell, so we add the cell base
+        orig_x1 = cell_base_x + sx1
+        orig_y1 = cell_base_y + sy1
+        orig_x2 = cell_base_x + sx2
+        orig_y2 = cell_base_y + sy2
+        
+        # Now transform from original image coordinates to PDF coordinates
+        if original_page and original_page.rotation == 90:
+            # For 90° rotated PDFs, we need to transform coordinates
+            # Original landscape (9362x6623) -> PDF portrait (MediaBox)
+            mediabox = original_page.mediabox
+            pdf_width = mediabox.width   # Should be ~2384 (portrait width)
+            pdf_height = mediabox.height # Should be ~3370 (portrait height)
+            
+            # Apply 90° rotation transformation: (x, y) -> (y, height - x)
+            # But we need to scale first, then rotate
+            
+            # Scale from original image to PDF dimensions
+            scale_x = pdf_width / original_height   # Note: swapped due to rotation
+            scale_y = pdf_height / original_width   # Note: swapped due to rotation
+            
+            # Apply rotation transformation
+            # For 90° clockwise: (x, y) -> (y, original_width - x)
+            rot_x1 = orig_y1 * scale_x
+            rot_y1 = (original_width - orig_x2) * scale_y  # Use x2 for y1 due to rotation
+            rot_x2 = orig_y2 * scale_x
+            rot_y2 = (original_width - orig_x1) * scale_y  # Use x1 for y2 due to rotation
+            
+            # Ensure coordinates are in correct order
+            if rot_x1 > rot_x2:
+                rot_x1, rot_x2 = rot_x2, rot_x1
+            if rot_y1 > rot_y2:
+                rot_y1, rot_y2 = rot_y2, rot_y1
+            
+            print(f"Snippet r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> PDF: ({rot_x1:.0f},{rot_y1:.0f})-({rot_x2:.0f},{rot_y2:.0f})")
+            
+            return (rot_x1, rot_y1, rot_x2, rot_y2)
+        else:
+            # For non-rotated PDFs, simple scaling
+            pdf_width = page.rect.width
+            pdf_height = page.rect.height
+            
+            scale_x = pdf_width / original_width
+            scale_y = pdf_height / original_height
+            
+            pdf_x1 = orig_x1 * scale_x
+            pdf_y1 = orig_y1 * scale_y
+            pdf_x2 = orig_x2 * scale_x
+            pdf_y2 = orig_y2 * scale_y
+            
+            print(f"Snippet r{row}c{col}: ({sx1:.0f},{sy1:.0f})-({sx2:.0f},{sy2:.0f}) -> PDF: ({pdf_x1:.0f},{pdf_y1:.0f})-({pdf_x2:.0f},{pdf_y2:.0f})")
+            
+            return (pdf_x1, pdf_y1, pdf_x2, pdf_y2)
     
     def _draw_text_regions_only(self, page: fitz.Page, text_data: Dict, 
-                              target_page: int, page_rect: fitz.Rect):
+                              target_page: int, original_page: fitz.Page):
         """Draw only OCR text regions with proper coordinate mapping"""
         
         # Get page text regions
@@ -238,8 +449,45 @@ class EnhancedPDFCreator:
                     symbol_bbox = [symbol_bbox["x1"], symbol_bbox["y1"], 
                                  symbol_bbox["x2"], symbol_bbox["y2"]]
                 
-                # Position text near the associated symbol
+                # Get symbol coordinates and apply same transformation as detections
                 sx1, sy1, sx2, sy2 = symbol_bbox
+                
+                # Apply coordinate transformation if PDF was rotated
+                if original_page and original_page.rotation == 90:
+                    # Get original image dimensions from detection data
+                    original_width = None
+                    original_height = None
+                    
+                    # Find the detection data for this page to get dimensions
+                    for page_data in text_data.get("pages", []):
+                        if page_data.get("page") == target_page:
+                            # Try to get dimensions from detection data or use defaults
+                            original_width = 9362  # From detection data we saw earlier
+                            original_height = 6623
+                            break
+                    
+                    if original_width and original_height:
+                        # Transform symbol coordinates from landscape to portrait
+                        new_sx1 = sy1
+                        new_sy1 = original_width - sx2
+                        new_sx2 = sy2
+                        new_sy2 = original_width - sx1
+                        
+                        # Ensure coordinates are in correct order
+                        if new_sx1 > new_sx2:
+                            new_sx1, new_sx2 = new_sx2, new_sx1
+                        if new_sy1 > new_sy2:
+                            new_sy1, new_sy2 = new_sy2, new_sy1
+                        
+                        # Scale to PDF dimensions
+                        page_rect = page.rect
+                        scale_x = page_rect.width / original_height
+                        scale_y = page_rect.height / original_width
+                        
+                        sx1 = new_sx1 * scale_x
+                        sy1 = new_sy1 * scale_y
+                        sx2 = new_sx2 * scale_x
+                        sy2 = new_sy2 * scale_y
                 
                 # Calculate text box size based on text length
                 text_width = len(text) * (self.font_size - 1) * 0.6
@@ -252,6 +500,7 @@ class EnhancedPDFCreator:
                 text_y2 = text_y1 + text_height
                 
                 # Ensure text box is within page bounds
+                page_rect = page.rect
                 if text_x2 > page_rect.width:
                     text_x1 = page_rect.width - text_width - 10
                     text_x2 = text_x1 + text_width

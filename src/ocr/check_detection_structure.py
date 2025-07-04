@@ -56,7 +56,7 @@ def check_detection_file(file_path):
 
 if __name__ == "__main__":
     # Test with your detection file
-    detection_file = "D:/MarMe/github/0.3/plc-data/processed/detdiagrams2/1150_detections.json"
+    detection_file = "D:/MarMe/github/0.3/plc-data/processed/detdiagrams2/1150_detections.json" # NExt step update this path as a parameter to the pipelines config location
     
     if Path(detection_file).exists():
         check_detection_file(detection_file)

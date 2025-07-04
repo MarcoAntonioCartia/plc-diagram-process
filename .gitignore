@@ -53,6 +53,7 @@ data/*.weights
 data/plc_symbols.yaml
 data/README.roboflow.txt
 data/*.zip
+pdf_debug/*
 
 # Training runs (old location)
 runs/
@@ -105,6 +106,15 @@ activate.sh
 *.pdf
 # Exception: Allow documentation PDFs
 !docs/**/*.pdf
+
+# Metrics of each stage - Pipeline state files
+.pipeline_state/
+preparation_state.json
+training_state.json
+detection_state.json
+ocr_state.json
+enhancement_state.json
+execution_summary.json
 
 # ===== IDE and Editors =====
 # VSCode

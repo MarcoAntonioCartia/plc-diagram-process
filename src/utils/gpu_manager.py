@@ -139,7 +139,8 @@ class GPUManager(AbstractContextManager):
 
     def _set_torch_environment(self) -> None:
         os.environ["CUDA_MODULE_LOADING"] = "LAZY"
-        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+        # Removed PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 - causes 75x training slowdown
+        # This setting forces PyTorch to split GPU memory into tiny chunks, creating massive overhead
 
         if sys.platform == "win32":
             self._prioritize_torch_dlls()
@@ -212,4 +213,4 @@ class GPUManager(AbstractContextManager):
 def get_gpu_manager() -> GPUManager:
     """Return the global :class:`GPUManager` singleton."""
 
-    return GPUManager.global_instance() 
+    return GPUManager.global_instance()

@@ -47,51 +47,24 @@ class TextExtractionPipeline:
     
     def _get_device(self, device: Optional[str]) -> str:
         """
-        Determines the appropriate compute device ('gpu' or 'cpu').
-        If a device is specified, it's used. Otherwise, it defaults to 'gpu'.
+        PaddleOCR 3.x doesn't use device parameters anymore.
+        Device selection is handled automatically by PaddleOCR.
+        This method is kept for compatibility but doesn't affect initialization.
         """
         if device:
-            print(f"Device specified via parameter: {device}")
-            return device
-
-        # Autodetect: prefer first CUDA device when Paddle is compiled with
-        # GPU support; otherwise fall back to CPU.
-        try:
-            import paddle
-
-            if paddle.device.is_compiled_with_cuda():
-                gpu_count = paddle.device.cuda.device_count()
-                if gpu_count > 0:
-                    # Paddle 2.6 removed `paddle.device.cuda.current_device()`; use a
-                    # robust fallback that works on both old *and* new versions.
-                    if hasattr(paddle.device.cuda, "current_device"):
-                        idx = paddle.device.cuda.current_device()
-                    else:
-                        # `paddle.get_device()` returns strings like 'gpu:0'. We only
-                        # need the numeric index here.  If the string doesn't start
-                        # with the expected prefix we just default to 0.
-                        _dev_str = getattr(paddle, "get_device", lambda: "gpu:0")()
-                        idx = int(_dev_str.split(":")[-1]) if _dev_str.startswith("gpu") else 0
-
-                    dev_str = f"gpu:{idx}"
-                    print(f"CUDA detected with {gpu_count} device(s). Selecting '{dev_str}'.")
-                    return dev_str
-                else:
-                    print("Paddle compiled with CUDA but no physical GPU detected -> CPU fallback.")
-                    return 'cpu'
-        except Exception as e:
-            # If paddle itself is not available yet or any error happens, be
-            # conservative and use CPU.
-            print(f"Warning: Unable to query paddle for CUDA capability ({e}). Falling back to CPU.")
-            return 'cpu'
+            print(f"Note: Device parameter '{device}' specified but PaddleOCR 3.x handles device selection automatically")
+        
+        print("PaddleOCR 3.x will automatically select the best available device (GPU/CPU)")
+        return "auto"
 
     def __init__(self, confidence_threshold: float = 0.5, ocr_lang: str = "en", 
                  enable_nms: bool = True, nms_iou_threshold: float = 0.5,
                  enable_roi_preprocessing: bool = False,
                  perform_deduplication: bool = True, deduplication_iou_threshold: float = 0.5,
+                 bbox_padding: float = 0, duplicate_iou_threshold: float = 0.7,
                  device: Optional[str] = None):
         """
-        Initialize the text extraction pipeline
+        Initialize the text extraction pipeline with PaddleOCR 3.x
         
         Args:
             confidence_threshold: Minimum confidence for OCR results (lowered to 0.5)
@@ -101,7 +74,9 @@ class TextExtractionPipeline:
             enable_roi_preprocessing: Whether to apply ROI preprocessing for better OCR
             perform_deduplication: Whether to perform detection deduplication
             deduplication_iou_threshold: IoU threshold for detection deduplication
-            device: Device to use for PaddleOCR ('gpu' or 'cpu')
+            bbox_padding: Padding in pixels to add around YOLO bounding boxes (default: 0)
+            duplicate_iou_threshold: IoU threshold for duplicate detection filtering (default: 0.7)
+            device: Device preference (for logging only, PaddleOCR 3.x auto-selects)
         """
         self.confidence_threshold = confidence_threshold
         self.ocr_lang = ocr_lang
@@ -110,14 +85,15 @@ class TextExtractionPipeline:
         self.enable_roi_preprocessing = enable_roi_preprocessing
         self.perform_deduplication = perform_deduplication
         self.deduplication_iou_threshold = deduplication_iou_threshold
+        self.bbox_padding = bbox_padding
+        self.duplicate_iou_threshold = duplicate_iou_threshold
         
-        # Decide compute device (GPU preferred if available)
+        # Log device preference but don't use it for initialization
         self.device = self._get_device(device)
-        print(f"Using '{self.device}' device for PaddleOCR (fallback handled automatically).")
         
         # ------------------------------------------------------------------
         # Prepare the process for Paddle usage (set env vars, clear Torch caches
-        # if it was imported earlier, etc.).  This mitigates cuDNN / cuBLAS DLL
+        # if it was imported earlier, etc.). This mitigates cuDNN / cuBLAS DLL
         # conflicts when Torch and Paddle live in the same interpreter.
         # ------------------------------------------------------------------
         try:
@@ -130,61 +106,26 @@ class TextExtractionPipeline:
             self.roi_preprocessor = ROIPreprocessor()
             self.roi_preprocessor.set_debug_mode(True)  # Enable debug mode for now
         
-        # Initialize PaddleOCR with correct parameters for your version
+        # Initialize PaddleOCR 3.x with the new simplified API
         self.ocr = None
         self.ocr_available = False
         
-        # -------------------------------------------------------------
-        # Try to initialise PaddleOCR with GPU first, gracefully
-        # falling back to CPU if anything goes wrong.  This supports
-        # both the new `device` API and the legacy `use_gpu` flag.
-        # -------------------------------------------------------------
-
-        # -------- 1st attempt: preferred device (gpu/cpu) via new API --------
+        # PaddleOCR 3.x initialization - much simpler than 2.x
         try:
-            print(f"Trying PaddleOCR initialisation with device='{self.device}' …")
-            self.ocr = PaddleOCR(lang=ocr_lang, device=self.device, use_textline_orientation=True)
+            print(f"Initializing PaddleOCR 3.x with language: {ocr_lang}")
+            
+            # PaddleOCR 3.x simple initialization
+            # Device selection is automatic - no parameters needed
+            self.ocr = PaddleOCR(lang=ocr_lang)
             self.ocr_available = True
-            print(f"V PaddleOCR initialised successfully on {self.device.upper()}!")
-            return True
+            print("[OK] PaddleOCR 3.x initialized successfully!")
+            print("Device selection is handled automatically by PaddleOCR 3.x")
+            
         except Exception as e:
-            print(f"Initialisation with device parameter failed: {e}")
-
-            # -------- 2nd attempt: legacy API with explicit GPU flag --------
-            try:
-                legacy_gpu_flag = self.device == 'gpu'
-                print(f"Trying legacy initialisation with use_gpu={legacy_gpu_flag} …")
-                self.ocr = PaddleOCR(lang=ocr_lang, use_gpu=legacy_gpu_flag, use_textline_orientation=True)
-                self.ocr_available = True
-                dev_str = 'GPU' if legacy_gpu_flag else 'CPU'
-                print(f"V PaddleOCR initialised successfully with legacy flag on {dev_str}!")
-                return True
-            except Exception as e2:
-                print(f"Legacy initialisation failed: {e2}")
-
-                # -------- 3rd attempt: force CPU device --------
-                try:
-                    print("Trying explicit CPU initialisation to guarantee fallback …")
-                    self.ocr = PaddleOCR(lang=ocr_lang, device='cpu', use_textline_orientation=True)
-                    self.ocr_available = True
-                    print("V PaddleOCR initialised successfully on CPU!")
-                    return True
-                except Exception as e3:
-                    print(f"CPU explicit initialisation failed: {e3}")
-
-                    # -------- Final attempt: minimal parameters (defaults to CPU) --------
-                    try:
-                        print("Trying with minimal parameters …")
-                        self.ocr = PaddleOCR(lang=ocr_lang)
-                        self.ocr_available = True
-                        print("V PaddleOCR initialised successfully with minimal parameters (CPU)!")
-                        return True
-                    except Exception as e4:
-                        print(f"X FATAL: All PaddleOCR initialization attempts failed: {e4}")
-                        print("Setting OCR to None - text extraction will use PDF text only.")
-                        self.ocr = None
-                        self.ocr_available = False
-                        return False
+            print(f"[ERROR] PaddleOCR 3.x initialization failed: {e}")
+            print("Setting OCR to None - text extraction will use PDF text only.")
+            self.ocr = None
+            self.ocr_available = False
         
         # Define PLC text patterns (ordered by priority)
         self.plc_patterns = [
@@ -227,15 +168,24 @@ class TextExtractionPipeline:
         with open(detection_file, 'r') as f:
             detection_data = json.load(f)
         
+        # Apply duplicate detection filtering for Tag-ID class
+        original_count = sum(len(page['detections']) for page in detection_data['pages'])
+        print(f"Original detections: {original_count}")
+        
+        # Filter duplicates for Tag-ID class specifically
+        detection_data = self._filter_duplicate_detections(detection_data)
+        filtered_count = sum(len(page['detections']) for page in detection_data['pages'])
+        print(f"After duplicate filtering: {filtered_count} (removed {original_count - filtered_count} duplicates)")
+        
         # Apply Non-Maximum Suppression to remove overlapping detections
         if self.enable_nms:
-            print(f"Original detections: {sum(len(page['detections']) for page in detection_data['pages'])}")
             detection_data = deduplicate_detections(
                 detection_data, 
                 iou_threshold=self.nms_iou_threshold,
                 class_specific=True
             )
-            print(f"After NMS: {sum(len(page['detections']) for page in detection_data['pages'])}")
+            nms_count = sum(len(page['detections']) for page in detection_data['pages'])
+            print(f"After NMS: {nms_count}")
         
         # Extract text using both methods
         pdf_texts = self._extract_pdf_text_near_detections(pdf_file, detection_data)
@@ -421,14 +371,11 @@ class TextExtractionPipeline:
                     x1, y1, x2, y2 = x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y
                     x1, y1, x2, y2 = x1 * 2, y1 * 2, x2 * 2, y2 * 2
                     
-                    # Expand region by 50% to capture associated text
-                    width, height = x2 - x1, y2 - y1
-                    expand_x, expand_y = width * 0.5, height * 0.5
-                    
-                    roi_x1 = max(0, int(x1 - expand_x))
-                    roi_y1 = max(0, int(y1 - expand_y))
-                    roi_x2 = min(img.shape[1], int(x2 + expand_x))
-                    roi_y2 = min(img.shape[0], int(y2 + expand_y))
+                    # Apply configurable padding to capture associated text
+                    roi_x1 = max(0, int(x1 - self.bbox_padding))
+                    roi_y1 = max(0, int(y1 - self.bbox_padding))
+                    roi_x2 = min(img.shape[1], int(x2 + self.bbox_padding))
+                    roi_y2 = min(img.shape[0], int(y2 + self.bbox_padding))
                     
                     # Validate ROI coordinates
                     if roi_x1 >= roi_x2 or roi_y1 >= roi_y2:
@@ -443,163 +390,92 @@ class TextExtractionPipeline:
                         print(f"Warning: Empty ROI extracted: shape {roi.shape}")
                         continue
 
-                    # --- DEBUG: Save ROI and print info ---
-                    import os
-                    debug_dir = "debug_rois"
-                    os.makedirs(debug_dir, exist_ok=True)
-                    det_conf = detection.get('confidence', 0)
-                    det_class = detection.get('class_name', 'unknown')
-                    roi_filename = f"{debug_dir}/page{page_num+1}_class{det_class}_prob{det_conf:.2f}_x{roi_x1}_y{roi_y1}_w{roi_x2-roi_x1}_h{roi_y2-roi_y1}.png"
-                    
-                    # Only save if ROI is valid
-                    if roi.size > 0 and roi.shape[0] > 0 and roi.shape[1] > 0:
-                        try:
-                            cv2.imwrite(roi_filename, roi)
-                            print(f"Saved ROI: {roi_filename}, shape: {roi.shape}, bbox: {bbox}, expanded: ({roi_x1}, {roi_y1}, {roi_x2}, {roi_y2}), confidence: {det_conf}")
-                        except Exception as e:
-                            print(f"Warning: Failed to save ROI {roi_filename}: {e}")
-                    else:
-                        print(f"Skipped saving invalid ROI: shape {roi.shape}")
-                    # --- END DEBUG ---
+                    # Validate ROI is not empty and has valid dimensions
+                    if roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
+                        print(f"Warning: Empty ROI extracted: shape {roi.shape}")
+                        continue
                     
                     if roi.size > 0 and roi.shape[0] > 0 and roi.shape[1] > 0:
                         # Apply ROI preprocessing if enabled
                         if self.enable_roi_preprocessing:
-                            debug_path = Path(roi_filename) if self.roi_preprocessor.debug_mode else None
+                            det_class = detection.get('class_name', 'unknown')
                             processed_roi = self.roi_preprocessor.preprocess_for_symbol_class(
                                 roi, det_class
                             )
                         else:
                             processed_roi = roi
                         
-                        # Run OCR on processed ROI
+                        # Run OCR on processed ROI using PaddleOCR 3.x API
                         try:
-                            ocr_results = self.ocr.ocr(processed_roi)
+                            # PaddleOCR 3.x returns results in predict() method format
+                            ocr_results = self.ocr.predict(processed_roi)
                         except Exception as e:
                             print(f"Warning: OCR failed on ROI: {e}")
                             continue
                         
                         if ocr_results and len(ocr_results) > 0:
                             try:
+                                # PaddleOCR 3.x returns a list of OCRResult objects
                                 ocr_result = ocr_results[0]
                                 
-                                # Handle new PaddleOCR format (OCRResult object)
-                                texts, scores, polys = None, None, None
-                                
-                                if hasattr(ocr_result, 'json') and 'res' in ocr_result.json:
-                                    # New format: OCRResult object with nested data
-                                    res_data = ocr_result.json['res']
-                                    if 'rec_texts' in res_data and 'rec_scores' in res_data and 'rec_polys' in res_data:
-                                        texts = res_data['rec_texts']
-                                        scores = res_data['rec_scores']
-                                        polys = res_data['rec_polys']
-                                elif hasattr(ocr_result, 'rec_texts') and hasattr(ocr_result, 'rec_scores') and hasattr(ocr_result, 'rec_polys'):
-                                    # Direct attributes (fallback)
-                                    texts = ocr_result.rec_texts
-                                    scores = ocr_result.rec_scores
-                                    polys = ocr_result.rec_polys
-                                
-                                # Process extracted texts
-                                if texts and scores and polys:
-                                    for text, confidence, bbox_roi in zip(texts, scores, polys):
-                                        if confidence >= self.confidence_threshold and text.strip():
-                                            try:
-                                                # Convert ROI coordinates back to page coordinates
-                                                roi_bbox = np.array(bbox_roi)
-                                                roi_bbox[:, 0] += roi_x1  # Add ROI offset X
-                                                roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
-                                                roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
-                                                
-                                                # Get bounding box in page coordinates
-                                                min_x = float(np.min(roi_bbox[:, 0]))
-                                                min_y = float(np.min(roi_bbox[:, 1]))
-                                                max_x = float(np.max(roi_bbox[:, 0]))
-                                                max_y = float(np.max(roi_bbox[:, 1]))
-                                                
-                                                # Transform to global coordinates using associated symbol's snippet position
-                                                global_bbox = self._transform_to_global_coordinates(
-                                                    (min_x, min_y, max_x, max_y), 
-                                                    detection, 
-                                                    original_width, 
-                                                    original_height,
-                                                    current_width,
-                                                    current_height
-                                                )
-                                                
-                                                text_region = TextRegion(
-                                                    text=text.strip(),
-                                                    confidence=float(confidence),
-                                                    bbox=global_bbox,
-                                                    source="ocr",
-                                                    page=page_num + 1,
-                                                    associated_symbol=detection
-                                                )
-                                                text_regions.append(text_region)
-                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
-                                            except Exception as e:
-                                                print(f"Warning: Error processing OCR text '{text}': {e}")
-                                                continue
-                                
-                                # Handle old PaddleOCR format (list of lists)
-                                elif isinstance(ocr_result, list):
-                                    for line in ocr_result:
-                                        if not isinstance(line, (list, tuple)):
-                                            continue  # skip metadata/config keys
-                                        
-                                        try:
-                                            if len(line) == 2 and isinstance(line[1], (list, tuple)) and len(line[1]) == 2:
-                                                bbox_roi, (text, confidence) = line
-                                            elif len(line) == 3:
-                                                bbox_roi, text, confidence = line
-                                            else:
-                                                print(f"Warning: Unexpected OCR result format: {line}")
-                                                continue
-                                        except (ValueError, IndexError, TypeError) as e:
-                                            print(f"Warning: Error parsing OCR line {line}: {e}")
-                                            continue
-
-                                        if confidence >= self.confidence_threshold and text.strip():
-                                            try:
-                                                # Convert ROI coordinates back to page coordinates
-                                                roi_bbox = np.array(bbox_roi)
-                                                roi_bbox[:, 0] += roi_x1  # Add ROI offset X
-                                                roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
-                                                roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
-                                                
-                                                # Get bounding box in page coordinates
-                                                min_x = float(np.min(roi_bbox[:, 0]))
-                                                min_y = float(np.min(roi_bbox[:, 1]))
-                                                max_x = float(np.max(roi_bbox[:, 0]))
-                                                max_y = float(np.max(roi_bbox[:, 1]))
-                                                
-                                                # Transform to global coordinates using associated symbol's snippet position
-                                                global_bbox = self._transform_to_global_coordinates(
-                                                    (min_x, min_y, max_x, max_y), 
-                                                    detection, 
-                                                    original_width, 
-                                                    original_height,
-                                                    current_width,
-                                                    current_height
-                                                )
-                                                
-                                                text_region = TextRegion(
-                                                    text=text.strip(),
-                                                    confidence=float(confidence),
-                                                    bbox=global_bbox,
-                                                    source="ocr",
-                                                    page=page_num + 1,
-                                                    associated_symbol=detection
-                                                )
-                                                text_regions.append(text_region)
-                                                print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
-                                            except Exception as e:
-                                                print(f"Warning: Error processing OCR text '{text}': {e}")
-                                                continue
+                                # Extract data from PaddleOCR 3.x result format
+                                # The result is a dictionary-like object with direct key access
+                                if 'rec_texts' in ocr_result and 'rec_scores' in ocr_result and 'rec_polys' in ocr_result:
+                                    texts = ocr_result['rec_texts']
+                                    scores = ocr_result['rec_scores']
+                                    polys = ocr_result['rec_polys']
+                                    
+                                    print(f"OCR found {len(texts)} text regions in ROI")
+                                    
+                                    # Process extracted texts
+                                    if texts and scores and polys:
+                                        for text, confidence, bbox_roi in zip(texts, scores, polys):
+                                            if confidence >= self.confidence_threshold and text.strip():
+                                                try:
+                                                    # Convert ROI coordinates back to page coordinates
+                                                    roi_bbox = np.array(bbox_roi)
+                                                    roi_bbox[:, 0] += roi_x1  # Add ROI offset X
+                                                    roi_bbox[:, 1] += roi_y1  # Add ROI offset Y
+                                                    roi_bbox = roi_bbox / 2   # Scale back from 2x zoom
+                                                    
+                                                    # Get bounding box in page coordinates
+                                                    min_x = float(np.min(roi_bbox[:, 0]))
+                                                    min_y = float(np.min(roi_bbox[:, 1]))
+                                                    max_x = float(np.max(roi_bbox[:, 0]))
+                                                    max_y = float(np.max(roi_bbox[:, 1]))
+                                                    
+                                                    # Transform to global coordinates using associated symbol's snippet position
+                                                    global_bbox = self._transform_to_global_coordinates(
+                                                        (min_x, min_y, max_x, max_y), 
+                                                        detection, 
+                                                        original_width, 
+                                                        original_height,
+                                                        current_width,
+                                                        current_height
+                                                    )
+                                                    
+                                                    text_region = TextRegion(
+                                                        text=text.strip(),
+                                                        confidence=float(confidence),
+                                                        bbox=global_bbox,
+                                                        source="ocr",
+                                                        page=page_num + 1,
+                                                        associated_symbol=detection
+                                                    )
+                                                    text_regions.append(text_region)
+                                                    print(f"OCR found text: '{text.strip()}' (confidence: {confidence:.3f}) at global coords: {global_bbox}")
+                                                except Exception as e:
+                                                    print(f"Warning: Error processing OCR text '{text}': {e}")
+                                                    continue
+                                    else:
+                                        print(f"Warning: Empty OCR data in result")
                                 else:
-                                    print(f"Warning: Unexpected OCR result type: {type(ocr_result)}")
+                                    print(f"Warning: Missing expected keys in OCR result. Available keys: {list(ocr_result.keys()) if hasattr(ocr_result, 'keys') else 'No keys'}")
                                     
                             except Exception as e:
                                 print(f"Warning: Error processing OCR results: {e}")
+                                import traceback
+                                traceback.print_exc()
                                 continue
             
             doc.close()
@@ -979,3 +855,127 @@ class TextExtractionPipeline:
         print(f"Summary saved to: {summary_file}")
         
         return summary
+    
+    def _filter_duplicate_detections(self, detection_data: Dict) -> Dict:
+        """Filter duplicate detections using IoU-based approach"""
+        filtered_data = {
+            "pages": [],
+            "metadata": detection_data.get("metadata", {})
+        }
+        
+        for page_data in detection_data["pages"]:
+            filtered_page = {
+                "page": page_data.get("page", page_data.get("page_num", 1)),
+                "page_num": page_data.get("page_num", page_data.get("page", 1)),
+                "original_width": page_data.get("original_width"),
+                "original_height": page_data.get("original_height"),
+                "detections": []
+            }
+            
+            detections = page_data.get("detections", [])
+            if not detections:
+                filtered_page["detections"] = []
+                filtered_data["pages"].append(filtered_page)
+                continue
+            
+            # Group detections by class for class-specific filtering
+            class_groups = {}
+            for detection in detections:
+                class_name = detection.get("class_name", "unknown")
+                if class_name not in class_groups:
+                    class_groups[class_name] = []
+                class_groups[class_name].append(detection)
+            
+            # Filter duplicates within each class
+            for class_name, class_detections in class_groups.items():
+                if class_name == "Tag-ID":
+                    # Apply duplicate filtering for Tag-ID class
+                    filtered_detections = self._filter_class_duplicates(class_detections)
+                    print(f"  Tag-ID class: {len(class_detections)} -> {len(filtered_detections)} (removed {len(class_detections) - len(filtered_detections)} duplicates)")
+                else:
+                    # Keep all detections for other classes
+                    filtered_detections = class_detections
+                
+                filtered_page["detections"].extend(filtered_detections)
+            
+            filtered_data["pages"].append(filtered_page)
+        
+        return filtered_data
+    
+    def _filter_class_duplicates(self, detections: List[Dict]) -> List[Dict]:
+        """Filter duplicate detections within a single class using IoU"""
+        if len(detections) <= 1:
+            return detections
+        
+        # Sort by confidence (highest first)
+        sorted_detections = sorted(detections, key=lambda d: d.get("confidence", 0), reverse=True)
+        
+        filtered = []
+        
+        for detection in sorted_detections:
+            bbox = detection.get("bbox_global", detection.get("global_bbox", None))
+            if isinstance(bbox, dict):
+                bbox = [bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]]
+            if not (isinstance(bbox, list) and len(bbox) == 4):
+                continue
+            
+            try:
+                x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+            except (ValueError, TypeError):
+                continue
+            
+            # Check if this detection overlaps significantly with any already filtered detection
+            is_duplicate = False
+            for existing in filtered:
+                existing_bbox = existing.get("bbox_global", existing.get("global_bbox", None))
+                if isinstance(existing_bbox, dict):
+                    existing_bbox = [existing_bbox["x1"], existing_bbox["y1"], existing_bbox["x2"], existing_bbox["y2"]]
+                if not (isinstance(existing_bbox, list) and len(existing_bbox) == 4):
+                    continue
+                
+                try:
+                    ex1, ey1, ex2, ey2 = float(existing_bbox[0]), float(existing_bbox[1]), float(existing_bbox[2]), float(existing_bbox[3])
+                except (ValueError, TypeError):
+                    continue
+                
+                # Calculate IoU
+                iou = self._calculate_iou((x1, y1, x2, y2), (ex1, ey1, ex2, ey2))
+                
+                if iou > self.duplicate_iou_threshold:
+                    is_duplicate = True
+                    print(f"    Duplicate detected: IoU={iou:.3f} > {self.duplicate_iou_threshold}")
+                    break
+            
+            if not is_duplicate:
+                filtered.append(detection)
+        
+        return filtered
+    
+    def _calculate_iou(self, bbox1: Tuple[float, float, float, float], 
+                      bbox2: Tuple[float, float, float, float]) -> float:
+        """Calculate Intersection over Union (IoU) between two bounding boxes"""
+        x1_1, y1_1, x2_1, y2_1 = bbox1
+        x1_2, y1_2, x2_2, y2_2 = bbox2
+        
+        # Calculate intersection
+        x1_i = max(x1_1, x1_2)
+        y1_i = max(y1_1, y1_2)
+        x2_i = min(x2_1, x2_2)
+        y2_i = min(y2_1, y2_2)
+        
+        if x1_i >= x2_i or y1_i >= y2_i:
+            return 0.0
+        
+        intersection = (x2_i - x1_i) * (y2_i - y1_i)
+        
+        # Calculate areas
+        area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
+        area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
+        
+        # Calculate union
+        union = area1 + area2 - intersection
+        
+        if union <= 0:
+            return 0.0
+        
+        return intersection / union

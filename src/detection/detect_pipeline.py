@@ -8,7 +8,6 @@ import argparse
 from pathlib import Path
 import sys
 import subprocess
-from ultralytics import YOLO
 
 # Add project root to path for imports
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -42,21 +41,60 @@ class PLCDetectionPipeline:
             overlap: Overlap between snippets
             skip_pdf_conversion: Skip PDF to image conversion step (assumes images already exist)
         """
+        # Resolve diagrams folder path using config system (like the working stage-based pipeline)
         diagrams_folder = Path(diagrams_folder)
+        
+        # If it's a relative path, try to resolve it using the config system
+        if not diagrams_folder.is_absolute() and not diagrams_folder.exists():
+            from src.config import get_config
+            config = get_config()
+            data_root = Path(config.config["data_root"])
+            
+            # Handle case where path includes "plc-data" prefix
+            diagrams_str = str(diagrams_folder)
+            if diagrams_str.startswith("plc-data/") or diagrams_str.startswith("plc-data\\"):
+                # Remove the plc-data prefix since data_root already points to plc-data
+                relative_path = Path(diagrams_str[9:])  # Remove "plc-data/" or "plc-data\"
+                potential_path = data_root / relative_path
+            else:
+                # Try resolving relative to data root
+                potential_path = data_root / diagrams_folder
+            
+            if potential_path.exists():
+                diagrams_folder = potential_path
+            else:
+                # Try resolving relative to project root
+                potential_path = self.project_root / diagrams_folder
+                if potential_path.exists():
+                    diagrams_folder = potential_path
+        
         if not diagrams_folder.exists():
             raise FileNotFoundError(f"Diagrams folder not found: {diagrams_folder}")
         
-        # Set up output folders
+        # Set up output folders using config system (like the working pipeline)
         if output_folder is None:
-            output_folder = diagrams_folder.parent
-        
-        output_folder = Path(output_folder)
-        images_folder = output_folder / "images"
-        detdiagrams_folder = output_folder / "detdiagrams"
+            # Use config to get the correct data root instead of assuming parent relationships
+            from src.config import get_config
+            config = get_config()
+            data_root = Path(config.config["data_root"])
+            images_folder = data_root / "processed" / "images"
+            detdiagrams_folder = data_root / "processed" / "detdiagrams"
+        else:
+            # When output_folder is provided, it's already pointing to the final destination
+            # Don't add /processed/ because the caller already provides the full path
+            output_folder = Path(output_folder)
+            if "processed" in str(output_folder):
+                # The output_folder already includes processed path, use it directly
+                images_folder = output_folder.parent / "images"
+                detdiagrams_folder = output_folder
+            else:
+                # Legacy behavior for backward compatibility
+                images_folder = output_folder / "processed" / "images"
+                detdiagrams_folder = output_folder / "processed" / "detdiagrams"
         
         # Create output directories
-        images_folder.mkdir(exist_ok=True)
-        detdiagrams_folder.mkdir(exist_ok=True)
+        images_folder.mkdir(parents=True, exist_ok=True)
+        detdiagrams_folder.mkdir(parents=True, exist_ok=True)
         
         print("Starting PLC Detection Pipeline")
         print("=" * 50)
@@ -105,7 +143,7 @@ class PLCDetectionPipeline:
         # Run the snipping process
         process_pdf_folder(
             input_folder=diagrams_folder,
-            output_folder=images_folder,
+            output_folder=images_folder,  # Output images to images_folder
             snippet_size=snippet_size,
             overlap=overlap,
             poppler_path=poppler_path
